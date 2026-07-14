@@ -72,10 +72,10 @@ export default function Workspace() {
     }
   };
 
-  if (!octokit || !owner || !repo) return <div className="p-8 text-[var(--color-app-textMuted)] bg-[var(--color-app-main)] h-screen flex items-center justify-center">Loading workspace...</div>;
+  if (!octokit || !owner || !repo) return <div className="p-8 text-[var(--color-app-textMuted)] bg-[var(--color-app-main)] h-dvh flex items-center justify-center">Loading workspace...</div>;
 
   return (
-    <div className="flex h-screen bg-[var(--color-app-main)] text-[var(--color-app-textPrimary)] overflow-hidden font-sans selection:bg-[#444]">
+    <div className="flex h-dvh bg-[var(--color-app-main)] text-[var(--color-app-textPrimary)] overflow-hidden font-sans selection:bg-[#444]">
       {/* Left panel - Sidebar */}
       <div className="w-[260px] h-full flex flex-col bg-[var(--color-app-surface)] shrink-0 border-r border-[var(--color-app-borderLight)]">
         <div className="p-4">

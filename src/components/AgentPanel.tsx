@@ -96,6 +96,15 @@ export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelP
   const [mentionFilter, setMentionFilter] = useState('');
   const [mentionIndex, setMentionIndex] = useState(0);
   const [viewMode, setViewMode] = useState<'preview' | 'raw'>('preview');
+  
+  interface ArtifactData {
+    id: string;
+    title: string;
+    language: string;
+    content: string;
+  }
+  const [activeArtifact, setActiveArtifact] = useState<ArtifactData | null>(null);
+  
   const [agentMode, setAgentMode] = useState<'build' | 'plan'>('build');
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const [showMcpDialog, setShowMcpDialog] = useState(false);
@@ -627,6 +636,59 @@ const getToolIcon = (name: string) => {
   return 'ph-wrench';
 };
 
+const ToolGroupView = ({ msg, messages, executePendingTools, handleDeny }: any) => {
+  const allToolsComplete = msg.toolCalls.every((tc: any) => messages.some((m: any) => m.role === 'tool' && m.toolCallId === tc.id));
+  const hasSubsequentMessage = messages.some((m: any) => m.role === 'assistant' && messages.indexOf(m) > messages.indexOf(msg));
+  const shouldCollapseByDefault = allToolsComplete && hasSubsequentMessage;
+  
+  const [expanded, setExpanded] = useState(!shouldCollapseByDefault);
+
+  useEffect(() => {
+    if (shouldCollapseByDefault && expanded) {
+       setExpanded(false);
+    }
+  }, [shouldCollapseByDefault]);
+
+  return (
+    <div className="mt-4 flex flex-col gap-0 pl-1 relative">
+      {shouldCollapseByDefault && (
+        <div className="relative py-1 group">
+          {expanded && <div className="absolute left-[7px] top-[24px] bottom-[-8px] w-[1px] bg-app-border z-0"></div>}
+          <button 
+            onClick={() => setExpanded(!expanded)}
+            className="flex items-center gap-2 text-xs font-mono text-app-textSecondary hover:text-app-textPrimary transition-premium py-1 group w-full mb-1"
+          >
+            <div className="w-4 flex justify-center bg-app-main relative z-10">
+              <i className="ph-light ph-wrench text-sm text-app-textMuted group-hover:text-app-textSecondary transition-colors"></i>
+            </div>
+            <span className="font-semibold capitalize">Used {msg.toolCalls.length} tool{msg.toolCalls.length !== 1 ? 's' : ''}</span>
+            <i className={`ph-light ${expanded ? 'ph-caret-down' : 'ph-caret-right'} text-[10px]`}></i>
+          </button>
+        </div>
+      )}
+      
+      <AnimatePresence>
+        {(!shouldCollapseByDefault || expanded) && (
+          <motion.div
+            initial={shouldCollapseByDefault ? { opacity: 0, filter: 'blur(4px)', height: 0 } : false}
+            animate={{ opacity: 1, filter: 'blur(0px)', height: 'auto' }}
+            exit={{ opacity: 0, filter: 'blur(4px)', height: 0 }}
+            transition={{ duration: 0.2 }}
+            className="flex flex-col gap-0 overflow-hidden"
+          >
+            {msg.toolCalls.map((tc: any, i: number) => {
+               const toolResultMsg = messages.find((m: any) => m.role === 'tool' && m.toolCallId === tc.id);
+               return (
+                 <ToolCallView key={i} tc={tc} msg={msg} toolResultMsg={toolResultMsg} executePendingTools={executePendingTools} handleDeny={handleDeny} messages={messages} isLast={i === msg.toolCalls.length - 1} />
+               );
+            })}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
 const ToolCallView = ({ tc, msg, toolResultMsg, executePendingTools, handleDeny, messages, isLast }: any) => {
   const [expanded, setExpanded] = useState(false);
   const [allowDropdownOpen, setAllowDropdownOpen] = useState(false);
@@ -666,13 +728,18 @@ const ToolCallView = ({ tc, msg, toolResultMsg, executePendingTools, handleDeny,
 
   return (
     <div className="relative py-1 group">
-      <div className="flex flex-col gap-2">
+      {!isLast && (
+         <div className="absolute left-[7px] top-[24px] bottom-[-8px] w-[1px] bg-app-border z-0"></div>
+      )}
+      <div className="flex flex-col gap-2 relative z-10">
         <button 
           className="w-full flex items-center justify-between text-xs font-mono text-app-textSecondary hover:text-app-textPrimary transition-premium rounded py-1" 
           onClick={() => setExpanded(!expanded)}
         >
           <div className="flex items-center gap-2">
-            <i className={`ph-light ${getToolIcon(tc.function.name)} text-sm text-app-textMuted`}></i>
+            <div className="w-4 flex justify-center bg-app-main relative z-10">
+              <i className={`ph-light ${getToolIcon(tc.function.name)} text-sm text-app-textMuted`}></i>
+            </div>
             <span className="capitalize font-semibold">{tc.function.name.replace(/_/g, ' ')}</span>
           </div>
           <div className="flex items-center gap-2 text-[10px] text-app-textMuted font-sans">
@@ -695,7 +762,7 @@ const ToolCallView = ({ tc, msg, toolResultMsg, executePendingTools, handleDeny,
             animate={{ opacity: 1, filter: 'blur(0px)', height: 'auto' }}
             exit={{ opacity: 0, filter: 'blur(4px)', height: 0 }}
             transition={{ duration: 0.2 }}
-            className="text-xs font-mono bg-app-codeBg text-app-textSecondary rounded border border-app-border/30 overflow-hidden mb-2"
+            className="ml-[7px] pl-4 py-1 text-xs font-mono bg-app-codeBg text-app-textSecondary mb-2 relative border-l-2 border-app-border before:absolute before:left-0 before:top-0 before:w-3 before:border-t-2 before:border-app-border after:absolute after:left-0 after:bottom-0 after:w-3 after:border-b-2 after:border-app-border rounded-r"
           >
             <div className="grid grid-cols-1 md:grid-cols-2">
               <div className="p-3">
@@ -711,7 +778,7 @@ const ToolCallView = ({ tc, msg, toolResultMsg, executePendingTools, handleDeny,
                 </SyntaxHighlighter>
               </div>
               {toolResultMsg && (
-                <div className="p-3 border-t md:border-t-0 md:border-l border-app-border/30 bg-[var(--color-app-surface)] overflow-hidden">
+                <div className="p-3 border-t md:border-t-0 md:border-l border-app-border/30 overflow-hidden">
                   <div className="text-[9px] text-app-textMuted uppercase tracking-wider font-sans mb-1 font-bold">Result</div>
                   <SyntaxHighlighter
                     style={tokyoNight as any}
@@ -806,7 +873,8 @@ const ToolCallView = ({ tc, msg, toolResultMsg, executePendingTools, handleDeny,
 };
 
 return (
-    <main className="flex-1 flex flex-col h-full relative w-full bg-app-main text-app-textPrimary font-sans antialiased overflow-hidden selection:bg-app-surfaceHover selection:text-white">
+  <div className="flex w-full h-full overflow-hidden relative">
+    <main className="flex-1 flex flex-col h-full relative min-w-0 bg-app-main text-app-textPrimary font-sans antialiased selection:bg-app-surfaceHover selection:text-white">
       {/* Top Bar */}
       <header className="flex items-center justify-between px-6 py-4 border-b border-app-border/10 shrink-0">
         <div className="flex items-center gap-1 text-xs text-app-textSecondary">
@@ -961,7 +1029,37 @@ return (
       {/* Chat History */}
       <div className="flex-1 overflow-y-auto px-4 md:px-0 pb-36 custom-scrollbar" id="chat-container">
         <div className="max-w-2xl mx-auto py-8 space-y-10">
-          {messages.map((msg) => {
+          {(() => {
+             const processedMessages = messages.map(m => ({...m}));
+             for (let i = 0; i < processedMessages.length; i++) {
+                const msg = processedMessages[i];
+                if (msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0) {
+                   let nextAssistantIndex = i;
+                   while (true) {
+                      let nextIdx = -1;
+                      for (let j = nextAssistantIndex + 1; j < processedMessages.length; j++) {
+                         if (processedMessages[j].role !== 'tool' && processedMessages[j].role !== 'system') {
+                            nextIdx = j;
+                            break;
+                         }
+                      }
+                      if (nextIdx !== -1 && processedMessages[nextIdx].role === 'assistant') {
+                         const nextMsg = processedMessages[nextIdx];
+                         if (!nextMsg.content || nextMsg.content.trim() === '') {
+                            if (nextMsg.toolCalls && nextMsg.toolCalls.length > 0) {
+                               msg.toolCalls = [...msg.toolCalls, ...nextMsg.toolCalls];
+                            }
+                            nextMsg.toolCalls = [];
+                            nextAssistantIndex = nextIdx;
+                            continue;
+                         }
+                      }
+                      break;
+                   }
+                }
+             }
+             
+             return processedMessages.map((msg) => {
             if (msg.role === 'system') {
                return (
                  <div key={msg.id} className="text-center text-xs text-app-textMuted/70 my-2">
@@ -982,56 +1080,118 @@ return (
             }
 
             // AI Block
+            if ((!msg.content || msg.content.trim() === '') && (!msg.toolCalls || msg.toolCalls.length === 0)) {
+               return null;
+            }
+
             return (
-              <div key={msg.id} className="text-sm leading-relaxed space-y-5">
+              <div key={msg.id} className="text-sm leading-relaxed space-y-5 group">
                  <div className="space-y-4">
-                   {viewMode === 'raw' ? (
-                      <pre className="whitespace-pre-wrap font-mono text-[13px] text-app-textSecondary">
-                        {msg.content}
-                      </pre>
-                   ) : (
-                      <div className="markdown-body max-w-none text-[16px]" style={{ fontFamily: '"Noto Serif", serif' }}>
-                        <Markdown
-                          remarkPlugins={[remarkGfm]}
-                          components={{
-                            code({ node, inline, className, children, ...props }: any) {
-                              const match = /language-(\w+)/.exec(className || '');
-                              return !inline && match ? (
-                                <SyntaxHighlighter
-                                  style={tokyoNight as any}
-                                  language={match[1]}
-                                  PreTag="div"
-                                  {...props}
-                                >
-                                  {String(children).replace(/\n$/, '')}
-                                </SyntaxHighlighter>
-                              ) : (
-                                <code className={className} {...props}>
-                                  {children}
-                                </code>
-                              );
-                            }
-                          }}
-                        >
+                   {msg.content && (
+                     viewMode === 'raw' ? (
+                        <pre className="whitespace-pre-wrap font-mono text-[13px] text-app-textSecondary">
                           {msg.content}
-                        </Markdown>
-                      </div>
+                        </pre>
+                     ) : (
+                        <div className="markdown-body max-w-none text-[16px]" style={{ fontFamily: '"Noto Serif", serif' }}>
+                          <Markdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              table({ children, ...props }: any) {
+                                return (
+                                  <div className="w-full overflow-x-auto my-6 rounded-xl border border-[var(--color-app-borderLight)] shadow-sm bg-app-surface/20">
+                                    <table className="w-full text-left border-collapse text-sm !m-0" {...props}>
+                                      {children}
+                                    </table>
+                                  </div>
+                                );
+                              },
+                              thead({ children, ...props }: any) {
+                                return <thead className="bg-[#1a1b26]/50 text-app-textSecondary uppercase tracking-wider text-[11px] border-b border-[var(--color-app-borderLight)]" {...props}>{children}</thead>;
+                              },
+                              th({ children, ...props }: any) {
+                                return <th className="px-4 py-3 font-semibold" {...props}>{children}</th>;
+                              },
+                              td({ children, ...props }: any) {
+                                return <td className="px-4 py-3 text-app-textPrimary" {...props}>{children}</td>;
+                              },
+                              tr({ children, ...props }: any) {
+                                return <tr className="hover:bg-app-surface/60 transition-colors border-b border-[var(--color-app-borderLight)]/50 border-t-0 last:border-b-0" {...props}>{children}</tr>;
+                              },
+                              pre({ children }: any) {
+                                return <>{children}</>;
+                              },
+                              code({ node, inline, className, children, ...props }: any) {
+                                const match = /language-(\w+)/.exec(className || '');
+                                const content = String(children).replace(/\n$/, '');
+
+                                return !inline && match ? (
+                                  <div className="my-4 rounded-xl overflow-hidden border border-[var(--color-app-borderLight)] shadow-sm bg-[#252523]">
+                                    <div className="px-4 pt-3 pb-1 bg-transparent flex items-center justify-between select-none">
+                                      <span className="text-xs font-mono text-app-textMuted lowercase font-medium">{match[1]}</span>
+                                    </div>
+                                    <SyntaxHighlighter
+                                      style={tokyoNight as any}
+                                      language={match[1]}
+                                      PreTag="div"
+                                      className="text-sm font-mono custom-scrollbar !m-0 !bg-transparent"
+                                      customStyle={{ backgroundColor: 'transparent', padding: '1rem', margin: 0 }}
+                                      {...props}
+                                    >
+                                      {content}
+                                    </SyntaxHighlighter>
+                                  </div>
+                                ) : (
+                                  <code className="bg-[var(--color-app-surfaceHover)] text-[var(--color-app-accent)] px-1.5 py-0.5 rounded-md font-mono text-sm border border-[var(--color-app-borderLight)]" {...props}>
+                                    {children}
+                                  </code>
+                                );
+                              }
+                            }}
+                          >
+                            {msg.content}
+                          </Markdown>
+                        </div>
+                     )
                    )}
                    
                    {msg.toolCalls && msg.toolCalls.length > 0 && (
-                      <div className="mt-4 flex flex-col gap-0 pl-1">
-                        {msg.toolCalls.map((tc: any, i: number) => {
-                           const toolResultMsg = messages.find(m => m.role === 'tool' && m.toolCallId === tc.id);
-                           return (
-                             <ToolCallView key={i} tc={tc} msg={msg} toolResultMsg={toolResultMsg} executePendingTools={executePendingTools} handleDeny={handleDeny} messages={messages} isLast={i === msg.toolCalls.length - 1} />
-                           );
-                        })}
-                      </div>
+                      <ToolGroupView msg={msg} messages={messages} executePendingTools={executePendingTools} handleDeny={handleDeny} />
                    )}
+                   
+                   {/* Action Bar */}
+                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pt-1 -ml-1.5">
+                       <button 
+                         onClick={() => navigator.clipboard.writeText(msg.content || '')} 
+                         className="p-1.5 rounded-md text-app-textMuted hover:text-app-textPrimary hover:bg-app-surfaceHover transition-colors flex items-center justify-center"
+                         title="Copy text"
+                       >
+                         <Copy className="w-4 h-4" />
+                       </button>
+                       <button 
+                         className="p-1.5 rounded-md text-app-textMuted hover:text-app-textPrimary hover:bg-app-surfaceHover transition-colors flex items-center justify-center"
+                         title="Regenerate"
+                       >
+                         <i className="ph-light ph-arrows-clockwise text-[16px]"></i>
+                       </button>
+                       <div className="w-px h-3.5 bg-app-borderLight/60 mx-1"></div>
+                       <button 
+                         className="p-1.5 rounded-md text-app-textMuted hover:text-app-textPrimary hover:bg-app-surfaceHover transition-colors flex items-center justify-center"
+                         title="Good response"
+                       >
+                         <i className="ph-light ph-thumbs-up text-[16px]"></i>
+                       </button>
+                       <button 
+                         className="p-1.5 rounded-md text-app-textMuted hover:text-app-textPrimary hover:bg-app-surfaceHover transition-colors flex items-center justify-center"
+                         title="Bad response"
+                       >
+                         <i className="ph-light ph-thumbs-down text-[16px]"></i>
+                       </button>
+                   </div>
                  </div>
               </div>
             );
-          })}
+          })})()}
           
           {running && (
              <div className="flex items-center gap-2 text-xs text-app-textMuted">
@@ -1155,9 +1315,22 @@ return (
       )}
 
       {/* Connectors Modal Overlay */}
-      {showMcpDialog && (
-        <div className="fixed inset-0 bg-[var(--color-app-surface)]/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-app-modalBg border border-app-border/50 rounded-lg w-full max-w-[500px] shadow-2xl flex flex-col overflow-hidden max-h-[85vh] animate-in zoom-in-95 duration-200">
+      <AnimatePresence>
+        {showMcpDialog && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 bg-[var(--color-app-surface)]/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
+          >
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+              className="bg-app-modalBg border border-app-border/50 rounded-lg w-full max-w-[500px] shadow-2xl flex flex-col overflow-hidden max-h-[85vh]"
+            >
             
             <div className="flex items-center justify-between px-5 py-3.5 border-b border-app-border/20">
               <div className="flex items-center gap-2 text-app-textSecondary">
@@ -1310,9 +1483,58 @@ return (
                  </div>
                )}
             </div>
-          </div>
-        </div>
-      )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </main>
-  );
+
+    <AnimatePresence>
+      {false && activeArtifact && (
+        <motion.div
+          initial={{ width: 0, opacity: 0 }}
+          animate={{ width: window.innerWidth < 768 ? '100%' : '50%', opacity: 1 }}
+          exit={{ width: 0, opacity: 0 }}
+          transition={{ duration: 0.3, ease: 'easeInOut' }}
+          className="h-full bg-app-surface border-l border-app-border shrink-0 flex flex-col overflow-hidden z-20 absolute md:relative right-0 top-0"
+        >
+          <div className="flex items-center justify-between px-4 py-3 border-b border-app-border bg-app-surfaceHover">
+            <div className="flex items-center gap-2">
+              <Code className="w-4 h-4 text-app-accent" />
+              <span className="text-sm font-medium">{activeArtifact.title}</span>
+              <span className="px-2 py-0.5 rounded text-xs bg-app-surface border border-app-border text-app-textSecondary">{activeArtifact.language}</span>
+            </div>
+            <div className="flex items-center gap-2">
+               <button 
+                 onClick={() => {
+                   navigator.clipboard.writeText(activeArtifact.content);
+                 }}
+                 className="p-1.5 rounded hover:bg-app-surface text-app-textSecondary transition-colors"
+                 title="Copy code"
+               >
+                 <Copy className="w-4 h-4" />
+               </button>
+               <button 
+                 onClick={() => setActiveArtifact(null)}
+                 className="p-1.5 rounded hover:bg-app-surface text-app-textSecondary transition-colors"
+               >
+                 <X className="w-4 h-4" />
+               </button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-auto custom-scrollbar p-4 bg-[#1a1b26]">
+            <SyntaxHighlighter
+              style={tokyoNight as any}
+              language={activeArtifact.language}
+              PreTag="div"
+              className="text-sm font-mono !bg-transparent !m-0"
+            >
+              {activeArtifact.content}
+            </SyntaxHighlighter>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  </div>
+);
 }

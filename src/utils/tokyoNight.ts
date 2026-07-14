@@ -1,6 +1,6 @@
 export const tokyoNight = {
   "code[class*=\"language-\"]": {
-    "color": "#a9b1d6",
+    "color": "#F3F3F5",
     "background": "none",
     "fontFamily": "var(--font-mono)",
     "textAlign": "left",
@@ -18,8 +18,8 @@ export const tokyoNight = {
     "hyphens": "none"
   },
   "pre[class*=\"language-\"]": {
-    "color": "#a9b1d6",
-    "background": "#1a1b26",
+    "color": "#F3F3F5",
+    "background": "#252523",
     "fontFamily": "var(--font-mono)",
     "textAlign": "left",
     "whiteSpace": "pre",
@@ -40,94 +40,94 @@ export const tokyoNight = {
     "borderRadius": "0.5em"
   },
   "comment": {
-    "color": "#565f89",
+    "color": "#8E8E9A",
     "fontStyle": "italic"
   },
   "prolog": {
-    "color": "#565f89"
+    "color": "#8E8E9A"
   },
   "cdata": {
-    "color": "#565f89"
+    "color": "#8E8E9A"
   },
   "punctuation": {
-    "color": "#89ddff"
+    "color": "#F3F3F5"
   },
   "namespace": {
     "Opacity": ".7"
   },
   "tag": {
-    "color": "#f7768e"
+    "color": "#4D95EA"
   },
   "operator": {
-    "color": "#89ddff"
+    "color": "#E965A3"
   },
   "number": {
-    "color": "#ff9e64"
+    "color": "#4DBDBD"
   },
   "property": {
-    "color": "#7dcfff"
+    "color": "#4DBDBD"
   },
   "function": {
-    "color": "#7aa2f7"
+    "color": "#4D95EA"
   },
   "tag-id": {
-    "color": "#e0af68"
+    "color": "#4D95EA"
   },
   "selector": {
-    "color": "#e0af68"
+    "color": "#E965A3"
   },
   "atrule-id": {
-    "color": "#e0af68"
+    "color": "#E965A3"
   },
   "statement": {
-    "color": "#89ddff"
+    "color": "#E965A3"
   },
   "regex": {
-    "color": "#89ddff"
+    "color": "#DE7356"
   },
   "entity": {
-    "color": "#89ddff",
+    "color": "#4DBDBD",
     "cursor": "help"
   },
   "keyword": {
-    "color": "#bb9af7"
+    "color": "#E965A3"
   },
   "control": {
-    "color": "#bb9af7"
+    "color": "#E965A3"
   },
   "directive": {
-    "color": "#bb9af7"
+    "color": "#E965A3"
   },
   "unit": {
-    "color": "#bb9af7"
+    "color": "#4DBDBD"
   },
   "statement-keyword": {
-    "color": "#bb9af7",
+    "color": "#E965A3",
     "fontWeight": "bold"
   },
   "atrule": {
-    "color": "#bb9af7"
+    "color": "#E965A3"
   },
   "string": {
-    "color": "#9ece6a"
+    "color": "#47A83A"
   },
   "attr-value": {
-    "color": "#9ece6a"
+    "color": "#47A83A"
   },
   "url": {
-    "color": "#9ece6a"
+    "color": "#47A83A"
   },
   "attr-name": {
-    "color": "#e0af68"
+    "color": "#DE7356"
   },
   "placeholder": {
-    "color": "#e0af68"
+    "color": "#DE7356"
   },
   "variable": {
-    "color": "#e0af68"
+    "color": "#DE7356"
   },
   "important": {
-    "color": "#f7768e",
+    "color": "#E965A3",
     "fontWeight": "bold"
   },
   "bold": {

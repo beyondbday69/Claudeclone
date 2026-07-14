@@ -47,7 +47,7 @@ export default function Connect() {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--color-app-main)] flex items-center justify-center p-4">
+    <div className="min-h-dvh bg-[var(--color-app-main)] flex items-center justify-center p-4">
       <div className="w-full max-w-[440px] bg-[var(--color-app-surface)] border border-[var(--color-app-border)] rounded-2xl p-6 shadow-2xl">
         <div className="flex items-center gap-3 mb-4 text-[var(--color-app-textPrimary)]">
           <Github className="w-7 h-7" />
