@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<html>
+<body>
+<script>
+  fetch("https://evkwg-31-42-125-107.free.pinggy.net/sse", {
+    headers: { 'X-Pinggy-No-Screen': 'true' }
+  }).then(r => console.log("FETCH OK", r)).catch(e => console.log("FETCH ERR", e));
+</script>
+</body>
+</html>

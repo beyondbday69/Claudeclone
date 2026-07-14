@@ -1,0 +1,189 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Noto+Serif:ital,wght@0,400;0,700;1,400;1,700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Google Sans", "Noto Sans", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Fira Code", ui-monospace, SFMono-Regular, monospace;
+  --font-serif: "Noto Serif", "EB Garamond", ui-serif, Georgia, serif;
+
+  --color-app-main: var(--theme-app-main);
+  --color-app-surface: var(--theme-app-surface);
+  --color-app-surfaceHover: var(--theme-app-surfaceHover);
+  --color-app-border: var(--theme-app-border);
+  --color-app-borderLight: var(--theme-app-borderLight);
+  --color-app-textPrimary: var(--theme-app-textPrimary);
+  --color-app-textSecondary: var(--theme-app-textSecondary);
+  --color-app-textMuted: var(--theme-app-textMuted);
+  --color-app-accent: var(--theme-app-accent);
+  --color-app-userBubble: var(--theme-app-userBubble);
+  --color-app-codeBg: var(--theme-app-codeBg);
+  --color-app-modalBg: var(--theme-app-modalBg);
+
+  --text-xxs: 0.6rem;
+}
+
+:root {
+  /* Default to dark if no class */
+  --theme-app-main: #1F1E1B;
+  --theme-app-surface: #2B2A27;
+  --theme-app-surfaceHover: #363430;
+  --theme-app-border: #363430;
+  --theme-app-borderLight: #42403B;
+  --theme-app-textPrimary: #E8E5DC;
+  --theme-app-textSecondary: #9c9994;
+  --theme-app-textMuted: #6b6965;
+  --theme-app-accent: #da7c5c;
+  --theme-app-userBubble: #2B2A27;
+  --theme-app-codeBg: #151412;
+  --theme-app-modalBg: #1F1E1B;
+}
+
+:root.light {
+  /* Light mode colors */
+  --theme-app-main: #FAF9F5;
+  --theme-app-surface: #F2F0E9;
+  --theme-app-surfaceHover: #E8E5DC;
+  --theme-app-border: #E8E5DC;
+  --theme-app-borderLight: #DCD8CE;
+  --theme-app-textPrimary: #1F1E1B;
+  --theme-app-textSecondary: #5A5753;
+  --theme-app-textMuted: #807B75;
+  --theme-app-accent: #da7c5c;
+  --theme-app-userBubble: #F2F0E9;
+  --theme-app-codeBg: #F2F0E9;
+  --theme-app-modalBg: #FAF9F5;
+}
+
+:root.dark {
+  /* Dark mode colors */
+  --theme-app-main: #1F1E1B;
+  --theme-app-surface: #2B2A27;
+  --theme-app-surfaceHover: #363430;
+  --theme-app-border: #363430;
+  --theme-app-borderLight: #42403B;
+  --theme-app-textPrimary: #E8E5DC;
+  --theme-app-textSecondary: #9c9994;
+  --theme-app-textMuted: #6b6965;
+  --theme-app-accent: #da7c5c;
+  --theme-app-userBubble: #2B2A27;
+  --theme-app-codeBg: #151412;
+  --theme-app-modalBg: #1F1E1B;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-app-main);
+  color: var(--color-app-textPrimary);
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #282624;
+  border-radius: 99px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #383634;
+}
+
+.transition-premium {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.markdown-body {
+  font-family: inherit;
+  line-height: 1.7;
+}
+.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4, .markdown-body h5, .markdown-body h6 {
+  color: var(--color-app-textPrimary);
+  font-weight: 600;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  line-height: 1.25;
+}
+.markdown-body h1 { font-size: 1.75em; }
+.markdown-body h2 { font-size: 1.5em; }
+.markdown-body h3 { font-size: 1.25em; }
+.markdown-body h4 { font-size: 1.1em; }
+.markdown-body p {
+  margin-top: 0;
+  margin-bottom: 1em;
+  color: var(--color-app-textPrimary);
+}
+.markdown-body p:last-child {
+  margin-bottom: 0;
+}
+.markdown-body pre {
+  background-color: var(--color-app-codeBg);
+  padding: 1rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  margin-top: 1em;
+  margin-bottom: 1em;
+  border: 1px solid var(--color-app-border);
+}
+.markdown-body code {
+  background-color: var(--color-app-surfaceHover);
+  color: var(--color-app-textPrimary);
+  padding: 0.2em 0.4em;
+  border-radius: 0.25rem;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+.markdown-body pre code {
+  background-color: transparent;
+  color: inherit;
+  padding: 0;
+  border-radius: 0;
+  font-size: 0.85em;
+}
+.markdown-body a {
+  color: var(--color-app-accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+.markdown-body a:hover {
+  text-decoration-thickness: 2px;
+}
+.markdown-body ul, .markdown-body ol {
+  padding-left: 1.5rem;
+  margin-top: 0;
+  margin-bottom: 1em;
+  color: var(--color-app-textPrimary);
+}
+.markdown-body ul {
+  list-style-type: disc;
+}
+.markdown-body ol {
+  list-style-type: decimal;
+}
+.markdown-body li + li {
+  margin-top: 0.25em;
+}
+.markdown-body blockquote {
+  margin: 1em 0;
+  padding-left: 1rem;
+  border-left: 4px solid var(--color-app-borderLight);
+  color: var(--color-app-textSecondary);
+  font-style: italic;
+}
+.markdown-body table {
+  width: 100%;
+  margin-bottom: 1em;
+  border-collapse: collapse;
+}
+.markdown-body th, .markdown-body td {
+  padding: 0.5rem;
+  border: 1px solid var(--color-app-borderLight);
+  text-align: left;
+}
+.markdown-body th {
+  background-color: var(--color-app-surface);
+  font-weight: 600;
+}

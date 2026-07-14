@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<body>
+<script src="https://cdn.jsdelivr.net/npm/event-source-polyfill@1.0.31/src/eventsource.min.js"></script>
+<script>
+  const es = new EventSourcePolyfill("https://evkwg-31-42-125-107.free.pinggy.net/sse", {
+    headers: {
+      'X-Pinggy-No-Screen': 'true'
+    }
+  });
+  es.onopen = () => console.log("OPEN!");
+  es.onerror = (e) => console.log("ERROR!", e);
+</script>
+</body>
+</html>
