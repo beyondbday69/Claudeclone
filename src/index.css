@@ -1,10 +1,10 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Noto+Serif:ital,wght@0,400;0,700;1,400;1,700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Google Sans", "Noto Sans", "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "Fira Code", ui-monospace, SFMono-Regular, monospace;
-  --font-serif: "Noto Serif", "EB Garamond", ui-serif, Georgia, serif;
+  --font-sans: "Inter", "StyreneB", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-serif: "Copernicus", "Tiempos Headline", "Cormorant Garamond", ui-serif, Georgia, serif;
 
   --color-app-main: var(--theme-app-main);
   --color-app-surface: var(--theme-app-surface);
@@ -24,50 +24,50 @@
 
 :root {
   /* Default to dark if no class */
-  --theme-app-main: #1F1F1D;
-  --theme-app-surface: #2B2A27;
-  --theme-app-surfaceHover: #363430;
-  --theme-app-border: #363430;
-  --theme-app-borderLight: #42403B;
-  --theme-app-textPrimary: #E8E5DC;
-  --theme-app-textSecondary: #9c9994;
-  --theme-app-textMuted: #6b6965;
-  --theme-app-accent: #da7c5c;
-  --theme-app-userBubble: #2B2A27;
-  --theme-app-codeBg: #151412;
-  --theme-app-modalBg: #1F1E1B;
+  --theme-app-main: #181715;
+  --theme-app-surface: #1f1e1b;
+  --theme-app-surfaceHover: #252320;
+  --theme-app-border: #252320;
+  --theme-app-borderLight: #363430;
+  --theme-app-textPrimary: #faf9f5;
+  --theme-app-textSecondary: #a09d96;
+  --theme-app-textMuted: #6c6a64;
+  --theme-app-accent: #cc785c;
+  --theme-app-userBubble: #1f1e1b;
+  --theme-app-codeBg: #141413;
+  --theme-app-modalBg: #181715;
 }
 
 :root.light {
   /* Light mode colors */
-  --theme-app-main: #1F1F1D;
-  --theme-app-surface: #F2F0E9;
-  --theme-app-surfaceHover: #E8E5DC;
-  --theme-app-border: #E8E5DC;
-  --theme-app-borderLight: #DCD8CE;
-  --theme-app-textPrimary: #1F1E1B;
-  --theme-app-textSecondary: #5A5753;
-  --theme-app-textMuted: #807B75;
-  --theme-app-accent: #da7c5c;
-  --theme-app-userBubble: #F2F0E9;
-  --theme-app-codeBg: #F2F0E9;
-  --theme-app-modalBg: #FAF9F5;
+  --theme-app-main: #faf9f5;
+  --theme-app-surface: #efe9de;
+  --theme-app-surfaceHover: #e8e0d2;
+  --theme-app-border: #e6dfd8;
+  --theme-app-borderLight: #ebe6df;
+  --theme-app-textPrimary: #141413;
+  --theme-app-textSecondary: #3d3d3a;
+  --theme-app-textMuted: #6c6a64;
+  --theme-app-accent: #cc785c;
+  --theme-app-userBubble: #f5f0e8;
+  --theme-app-codeBg: #f5f0e8;
+  --theme-app-modalBg: #faf9f5;
 }
 
 :root.dark {
   /* Dark mode colors */
-  --theme-app-main: #1F1F1D;
-  --theme-app-surface: #2B2A27;
-  --theme-app-surfaceHover: #363430;
-  --theme-app-border: #363430;
-  --theme-app-borderLight: #42403B;
-  --theme-app-textPrimary: #E8E5DC;
-  --theme-app-textSecondary: #9c9994;
-  --theme-app-textMuted: #6b6965;
-  --theme-app-accent: #da7c5c;
-  --theme-app-userBubble: #2B2A27;
-  --theme-app-codeBg: #151412;
-  --theme-app-modalBg: #1F1E1B;
+  --theme-app-main: #181715;
+  --theme-app-surface: #1f1e1b;
+  --theme-app-surfaceHover: #252320;
+  --theme-app-border: #252320;
+  --theme-app-borderLight: #363430;
+  --theme-app-textPrimary: #faf9f5;
+  --theme-app-textSecondary: #a09d96;
+  --theme-app-textMuted: #6c6a64;
+  --theme-app-accent: #cc785c;
+  --theme-app-userBubble: #1f1e1b;
+  --theme-app-codeBg: #141413;
+  --theme-app-modalBg: #181715;
 }
 
 body {
