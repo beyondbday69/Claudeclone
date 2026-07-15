@@ -7,7 +7,9 @@ import { tokyoNight } from '../utils/tokyoNight';
 import { Bot, Terminal, ArrowUp, Check, Loader2, Eye, Code, Link2, User, ArrowLeft, X, ChevronDown, ChevronUp, Copy, MoreVertical, Hand, Ban } from 'lucide-react';
 import { Octokit } from '@octokit/rest';
 import { getTools, executeTool, isRiskyTool, getSystemPrompt } from '../utils/githubTools';
-import { connectMcp, getMcpTools, executeMcpTool } from '../utils/mcpClient';
+import { connectMcp, getMcpTools, executeMcpTool, getMcpToolsForUrl } from '../utils/mcpClient';
+import { db } from '../utils/firebase';
+import { collection, doc, setDoc, getDocs, deleteDoc, query, orderBy, limit } from 'firebase/firestore';
 
 interface AgentPanelProps {
   owner?: string;
@@ -49,6 +51,14 @@ export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelP
   const [provider, setProvider] = useState<string>(() => localStorage.getItem('selected_provider') || 'opencode');
   const [providerDropdownOpen, setProviderDropdownOpen] = useState(false);
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
+  const [showCustomizeModal, setShowCustomizeModal] = useState(false);
+  const [showAddConnectorModal, setShowAddConnectorModal] = useState(false);
+  const [activeConnectorTab, setActiveConnectorTab] = useState('All');
+  const [showAdvancedConnectorSettings, setShowAdvancedConnectorSettings] = useState(false);
+  const [selectedConnectorUrl, setSelectedConnectorUrl] = useState<string | null>(null);
+  const [showConnectorTools, setShowConnectorTools] = useState(true);
+  const [showGlobalPermissionDropdown, setShowGlobalPermissionDropdown] = useState(false);
+  const [showConnectorMenu, setShowConnectorMenu] = useState(false);
   const [models, setModels] = useState<any[]>([]);
 
   useEffect(() => {
@@ -79,12 +89,29 @@ export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelP
     }
   ]);
   const [sessionId, setSessionId] = useState<string>(() => Date.now().toString());
-  const [sessions, setSessions] = useState<ChatSession[]>(() => {
-    try {
-      const saved = localStorage.getItem('chat_sessions');
-      return saved ? JSON.parse(saved) : [];
-    } catch(e) { return []; }
-  });
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [sessionsLoaded, setSessionsLoaded] = useState(false);
+
+  useEffect(() => {
+    async function loadSessions() {
+      try {
+        const q = query(collection(db, 'chat_sessions'), orderBy('updatedAt', 'desc'), limit(50));
+        const snapshot = await getDocs(q);
+        const loaded: ChatSession[] = [];
+        snapshot.forEach(doc => {
+          loaded.push(doc.data() as ChatSession);
+        });
+        setSessions(loaded);
+        setSessionsLoaded(true);
+      } catch (err) {
+        console.error("Failed to load sessions from Firebase", err);
+        const saved = localStorage.getItem('chat_sessions');
+        if (saved) setSessions(JSON.parse(saved));
+        setSessionsLoaded(true);
+      }
+    }
+    loadSessions();
+  }, []);
   const [showSessionsPanel, setShowSessionsPanel] = useState(false);
   const [input, setInput] = useState('');
   const [running, setRunning] = useState(false);
@@ -109,6 +136,20 @@ export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelP
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const [showMcpDialog, setShowMcpDialog] = useState(false);
   const [mcpInputUrl, setMcpInputUrl] = useState('');
+  const [mcpInputName, setMcpInputName] = useState('');
+  const [mcpServerNames, setMcpServerNames] = useState<Record<string, string>>(() => {
+    try {
+      const saved = localStorage.getItem('mcp_server_names');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('mcp_server_names', JSON.stringify(mcpServerNames));
+  }, [mcpServerNames]);
+
   const [mcpServers, setMcpServers] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem('mcp_servers');
@@ -128,23 +169,27 @@ export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelP
   });
 
   useEffect(() => {
-    if (messages.length > 1) {
+    if (messages.length > 1 && sessionsLoaded) {
+      const name = messages.find(m => m.role === 'user')?.content.slice(0, 40) || 'New Chat';
+      const newSession = {
+        id: sessionId,
+        name,
+        updatedAt: Date.now(),
+        messages
+      };
+
       setSessions(prevSessions => {
-        const existing = prevSessions.find(s => s.id === sessionId);
-        const name = existing?.name || messages.find(m => m.role === 'user')?.content.slice(0, 40) || 'New Chat';
         const updatedSessions = prevSessions.filter(s => s.id !== sessionId);
-        const newSession = {
-          id: sessionId,
-          name,
-          updatedAt: Date.now(),
-          messages
-        };
         const newSessions = [newSession, ...updatedSessions].slice(0, 50); // keep last 50
         localStorage.setItem('chat_sessions', JSON.stringify(newSessions));
         return newSessions;
       });
+
+      setDoc(doc(db, "chat_sessions", sessionId), newSession).catch(err => {
+        console.error("Failed to save session to Firebase", err);
+      });
     }
-  }, [messages, sessionId]);
+  }, [messages, sessionId, sessionsLoaded]);
 
   const createNewSession = () => {
     setSessionId(Date.now().toString());
@@ -166,6 +211,9 @@ export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelP
     const newSessions = sessions.filter(s => s.id !== id);
     setSessions(newSessions);
     localStorage.setItem('chat_sessions', JSON.stringify(newSessions));
+    deleteDoc(doc(db, "chat_sessions", id)).catch(err => {
+      console.error("Failed to delete session from Firebase", err);
+    });
     if (id === sessionId) {
       createNewSession();
     }
@@ -187,13 +235,14 @@ export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelP
   };
 
     const getMcpName = (urlStr: string) => {
-    try {
-      const url = new URL(urlStr);
-      if (url.hostname.includes('spoti')) return "Spotify";
-      const hostPart = url.hostname.split('.')[0];
-      return hostPart.charAt(0).toUpperCase() + hostPart.slice(1);
-    } catch (e) { return "MCP Server"; }
-  };
+      if (mcpServerNames[urlStr]) return mcpServerNames[urlStr];
+      try {
+        const u = new URL(urlStr);
+        return u.hostname;
+      } catch (e) {
+        return urlStr;
+      }
+    };
 
   const humanizeToolName = (name: string) => {
     if (!name) return "";
@@ -262,22 +311,36 @@ export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelP
 
   const handleConnectMcp = async () => {
     if (!mcpInputUrl.trim()) return;
-    const result = await connectMcp(mcpInputUrl.trim());
+    const url = mcpInputUrl.trim();
+    const result = await connectMcp(url);
     if (result.success) {
-       if (!mcpServers.includes(mcpInputUrl.trim())) {
-           setMcpServers([...mcpServers, mcpInputUrl.trim()]);
+       if (!mcpServers.includes(url)) {
+           setMcpServers([...mcpServers, url]);
+       }
+       if (mcpInputName.trim()) {
+           setMcpServerNames(prev => ({ ...prev, [url]: mcpInputName.trim() }));
        }
        setMcpInputUrl('');
+       setMcpInputName('');
+       setShowAddConnectorModal(false);
        setMessages(prev => [...prev, { id: Date.now().toString(), role: 'system', content: `Connected to MCP server. ${result.tools?.length || 0} tools loaded.` }]);
     } else {
        setMessages(prev => [...prev, { id: Date.now().toString(), role: 'system', content: `Failed to connect to MCP server. Error: ${result.error}` }]);
+       alert("Failed to connect: " + result.error);
     }
   };
 
   const handleDisconnectMcp = (url: string) => {
-    // Ideally call disconnectMcp(url)
-    setMcpServers(mcpServers.filter(u => u !== url));
+    disconnectMcp(url);
+    setMcpReloadState(prev => prev + 1);
     setMessages(prev => [...prev, { id: Date.now().toString(), role: 'system', content: `Disconnected from MCP server ${url}.` }]);
+  };
+
+  const handleRemoveMcp = (url: string) => {
+    disconnectMcp(url);
+    setMcpServers(mcpServers.filter(u => u !== url));
+    setMcpReloadState(prev => prev + 1);
+    setMessages(prev => [...prev, { id: Date.now().toString(), role: 'system', content: `Removed MCP server ${url}.` }]);
   };
 
   const scrollToBottom = () => {
@@ -874,19 +937,112 @@ const ToolCallView = ({ tc, msg, toolResultMsg, executePendingTools, handleDeny,
 
 return (
   <div className="flex w-full h-full overflow-hidden relative">
+    {/* Mobile Overlay */}
+    <AnimatePresence>
+      {showSessionsPanel && (
+        <motion.div 
+           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+           className="md:hidden fixed inset-0 bg-black/50 z-40"
+           onClick={() => setShowSessionsPanel(false)}
+        />
+      )}
+    </AnimatePresence>
+
+    {/* Unified Expanding Sidebar */}
+    <motion.aside
+      initial={false}
+      animate={{ width: showSessionsPanel ? (window.innerWidth < 768 ? '80%' : 260) : (window.innerWidth < 768 ? 0 : 56) }}
+      transition={{ duration: 0.2, ease: "easeInOut" }}
+      className={`h-full bg-[#1C1C1A] border-r border-[var(--color-app-border)] shrink-0 flex flex-col z-50 absolute md:relative left-0 top-0 overflow-hidden shadow-2xl md:shadow-none ${!showSessionsPanel ? 'max-md:hidden' : ''}`}
+    >
+      <div className="flex flex-col h-full min-w-[260px] w-[260px]">
+        {/* Toggle Button Area */}
+        <div className="flex items-center justify-between px-2.5 pt-3 pb-2 shrink-0">
+           <span className={`text-base font-serif font-semibold text-app-textPrimary pl-1.5 whitespace-nowrap transition-opacity duration-150 ${showSessionsPanel ? 'opacity-100' : 'opacity-0'}`}>
+             ClaudeClone
+           </span>
+           <div className={`transition-all duration-200 ${showSessionsPanel ? 'transform translate-x-0' : 'transform -translate-x-[204px]'}`}>
+             <button onClick={() => setShowSessionsPanel(!showSessionsPanel)} className="text-app-textMuted hover:text-app-textPrimary transition-premium p-1.5 rounded-lg hover:bg-app-surface">
+               <span className="material-symbols-outlined text-[22px]">
+                 {showSessionsPanel ? 'left_panel_close' : 'left_panel_open'}
+               </span>
+             </button>
+           </div>
+        </div>
+        
+        {/* Action Buttons Area */}
+        <div className="px-2.5 pb-3 border-b border-[var(--color-app-borderLight)] shrink-0 flex flex-col gap-1">
+           <button 
+             onClick={createNewSession}
+             className="flex items-center gap-2 w-full p-1.5 rounded-lg hover:bg-app-surface text-app-textPrimary transition-premium overflow-hidden"
+             title="New Chat"
+           >
+             <span className="material-symbols-outlined text-[20px] shrink-0 text-app-textMuted">edit_square</span>
+             <span className={`text-sm font-medium whitespace-nowrap transition-opacity duration-150 ${showSessionsPanel ? 'opacity-100' : 'opacity-0'}`}>
+               New chat
+             </span>
+           </button>
+
+           <button 
+             onClick={() => setShowCustomizeModal(true)}
+             className="flex items-center gap-2 w-full p-1.5 rounded-lg hover:bg-[var(--color-app-surface)] text-app-textPrimary transition-premium overflow-hidden"
+             title="Customize"
+           >
+             <span className="material-symbols-outlined text-[20px] shrink-0 text-app-textMuted">home_repair_service</span>
+             <span className={`text-sm font-medium whitespace-nowrap transition-opacity duration-150 ${showSessionsPanel ? 'opacity-100' : 'opacity-0'}`}>
+               Customize
+             </span>
+           </button>
+        </div>
+        
+        {/* Chat List */}
+        <div className={`p-3 overflow-y-auto custom-scrollbar flex-1 flex flex-col gap-1 transition-opacity duration-150 ${showSessionsPanel ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+          <div className="px-2 pt-2 pb-1 text-xs font-semibold text-app-textSecondary whitespace-nowrap">
+            Recents
+          </div>
+          
+          {sessions.length === 0 ? (
+            <div className="text-center text-app-textMuted text-xs py-8">No saved chats yet.</div>
+          ) : (
+            sessions.map(s => (
+              <div 
+                key={s.id} 
+                className={`flex items-center justify-between p-2.5 rounded transition-premium cursor-pointer group ${s.id === sessionId ? 'bg-app-surfaceHover text-app-textPrimary' : 'text-app-textSecondary hover:bg-[var(--color-app-surfaceHover)]'}`}
+                onClick={() => loadSession(s.id)}
+              >
+                <div className="flex flex-col min-w-0">
+                  <div className="text-sm font-medium truncate pr-2">{s.name}</div>
+                  <div className="text-[10px] text-app-textMuted">{new Date(s.updatedAt).toLocaleDateString()}</div>
+                </div>
+                <button 
+                  onClick={(e) => deleteSession(s.id, e)}
+                  className="text-app-textMuted hover:text-red-400 p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                  title="Delete chat"
+                >
+                  <i className="ph-light ph-trash"></i>
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+
+
+      </div>
+    </motion.aside>
+
     <main className="flex-1 flex flex-col h-full relative min-w-0 bg-app-main text-app-textPrimary font-sans antialiased selection:bg-app-surfaceHover selection:text-white">
       {/* Top Bar */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-app-border/10 shrink-0">
-        <div className="flex items-center gap-1 text-xs text-app-textSecondary">
-          <span 
-            className="hover:text-app-textPrimary cursor-pointer flex items-center gap-1.5 transition-premium" 
-            onClick={() => setShowSessionsPanel(true)}
-          >
-            <i className="ph-light ph-clock-counter-clockwise text-sm"></i>
-            History
-          </span>
-          
-          <i className="ph-light ph-caret-right text-xxs text-app-textMuted mx-1"></i>
+      <header className="flex flex-col lg:flex-row items-start lg:items-center justify-between px-4 md:px-6 py-3 md:py-4 border-b border-app-border/10 shrink-0 gap-3 lg:gap-0">
+        <div className="flex flex-wrap items-center gap-y-2 gap-x-1 text-xs text-app-textSecondary w-full lg:w-auto">
+          {!showSessionsPanel && (
+            <button 
+              className="md:hidden text-app-textMuted hover:text-app-textPrimary transition-premium flex items-center justify-center p-1 rounded hover:bg-app-surface/60" 
+              onClick={() => setShowSessionsPanel(true)}
+              title="Open Sidebar"
+            >
+              <span className="material-symbols-outlined text-[22px]">left_panel_open</span>
+            </button>
+          )}
 
           <span 
             className="hover:text-app-textPrimary cursor-pointer flex items-center gap-1.5 transition-premium" 
@@ -982,7 +1138,7 @@ return (
           </span>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 md:gap-3 w-full lg:w-auto">
            <div className="flex bg-app-surface/40 border border-app-border/30 rounded p-0.5">
              <button
                onClick={() => setWebSearchEnabled(!webSearchEnabled)}
@@ -1261,58 +1417,7 @@ return (
         </div>
       </div>
 
-      {/* Sessions Modal Overlay */}
-      {showSessionsPanel && (
-        <div className="fixed inset-0 bg-[var(--color-app-surface)]/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-app-modalBg border border-app-border/50 rounded-lg w-full max-w-[500px] shadow-2xl flex flex-col overflow-hidden max-h-[85vh] animate-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between px-5 py-3.5 border-b border-app-border/20">
-              <div className="flex items-center gap-2 text-app-textSecondary">
-                <i className="ph-light ph-clock-counter-clockwise text-md"></i>
-                <span className="text-xs font-semibold uppercase tracking-wider">Chat History</span>
-              </div>
-              <button 
-                onClick={() => setShowSessionsPanel(false)}
-                className="text-app-textMuted hover:text-app-textPrimary transition-premium"
-              >
-                <i className="ph-light ph-x text-md"></i>
-              </button>
-            </div>
-            
-            <div className="p-4 overflow-y-auto custom-scrollbar flex flex-col gap-2">
-              <button
-                onClick={createNewSession}
-                className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-app-surface border border-app-border/30 rounded text-sm text-app-textPrimary hover:bg-app-surfaceHover transition-premium mb-2"
-              >
-                <i className="ph-light ph-plus"></i> New Chat
-              </button>
-              
-              {sessions.length === 0 ? (
-                <div className="text-center text-app-textMuted text-sm py-8">No saved chats yet.</div>
-              ) : (
-                sessions.map(s => (
-                  <div 
-                    key={s.id} 
-                    className={`flex items-center justify-between p-3 rounded border transition-premium cursor-pointer ${s.id === sessionId ? 'bg-app-surface/60 border-app-border' : 'bg-transparent border-transparent hover:bg-app-surface/40'}`}
-                    onClick={() => loadSession(s.id)}
-                  >
-                    <div className="flex flex-col min-w-0">
-                      <div className="text-sm text-app-textPrimary font-medium truncate pr-4">{s.name}</div>
-                      <div className="text-xs text-app-textMuted">{new Date(s.updatedAt).toLocaleString()}</div>
-                    </div>
-                    <button 
-                      onClick={(e) => deleteSession(s.id, e)}
-                      className="text-app-textMuted hover:text-red-400 p-1 rounded hover:bg-app-surface flex-shrink-0"
-                      title="Delete chat"
-                    >
-                      <i className="ph-light ph-trash"></i>
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+
 
       {/* Connectors Modal Overlay */}
       <AnimatePresence>
@@ -1533,6 +1638,555 @@ return (
             </SyntaxHighlighter>
           </div>
         </motion.div>
+      )}
+    </AnimatePresence>
+
+    {/* Customize Modal */}
+    <AnimatePresence>
+      {showCustomizeModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center">
+          {/* Backdrop */}
+          <motion.div 
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}
+            className="absolute inset-0 bg-black/[.13] backdrop-blur-[2px]"
+            onClick={() => setShowCustomizeModal(false)}
+          />
+          
+          {/* Modal Container */}
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="relative w-[1024px] h-[650px] max-w-[95vw] max-h-[90vh] bg-app-main rounded-2xl overflow-hidden flex border border-app-border/50"
+          >
+            {/* Top Right Action Buttons */}
+            <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
+              <button className="p-1.5 rounded-lg text-app-textMuted hover:text-app-textPrimary hover:bg-app-surface transition-colors flex items-center justify-center">
+                <span className="material-symbols-outlined text-[20px]">search</span>
+              </button>
+              <button 
+                onClick={() => setShowAddConnectorModal(true)}
+                className="flex items-center gap-1 px-4 py-1.5 bg-[#161615] border border-app-border/20 rounded-lg text-sm font-medium text-app-textPrimary hover:bg-app-surface transition-colors shadow-sm"
+              >
+                Add
+                <span className="material-symbols-outlined text-[16px]">keyboard_arrow_down</span>
+              </button>
+              <button 
+                onClick={() => setShowCustomizeModal(false)}
+                className="p-1.5 rounded-lg hover:bg-app-surface text-app-textMuted hover:text-app-textPrimary transition-premium"
+              >
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+
+            {/* Left Column (20% Strip Color) */}
+            <div className="w-[20%] bg-[#1C1C1A] border-r border-app-border/30 p-3 flex flex-col gap-1">
+              <h2 className="text-xs font-semibold text-app-textSecondary px-2 py-2 mb-1">Customize</h2>
+              
+              <button className="flex items-center gap-2.5 w-full p-2 rounded-lg bg-[var(--color-app-surfaceHover)] text-app-textPrimary transition-premium text-left">
+                <span className="material-symbols-outlined text-[18px] text-app-textPrimary shrink-0">cable</span>
+                <span className="text-sm font-medium">Connectors</span>
+              </button>
+            </div>
+            
+            {/* Right Column (80% Chat Bg Color) */}
+            <div className="flex-1 bg-app-main p-8 flex flex-col relative overflow-hidden">
+              <AnimatePresence mode="wait">
+                {selectedConnectorUrl ? (
+                  <motion.div
+                    key="details"
+                    initial={{ opacity: 0, filter: 'blur(8px)' }}
+                    animate={{ opacity: 1, filter: 'blur(0px)' }}
+                    exit={{ opacity: 0, filter: 'blur(8px)' }}
+                    transition={{ duration: 0.2 }}
+                    className="flex-1 flex flex-col h-full overflow-hidden"
+                  >
+                    <div className="flex items-center justify-between mb-8 pr-24">
+                      <button 
+                        onClick={() => setSelectedConnectorUrl(null)}
+                        className="flex items-center gap-2 text-app-textSecondary hover:text-app-textPrimary transition-colors"
+                      >
+                        <span className="material-symbols-outlined text-[20px]">arrow_back</span>
+                        <span className="text-lg font-semibold text-app-textPrimary">Connectors</span>
+                      </button>
+                    </div>
+                  
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-lg bg-[#2a2a28] border border-app-border/30 flex items-center justify-center text-xl font-bold text-app-textPrimary">
+                        {getMcpName(selectedConnectorUrl).charAt(0)}
+                      </div>
+                      <h2 className="text-2xl font-bold text-app-textPrimary">{getMcpName(selectedConnectorUrl)}</h2>
+                    </div>
+                    <div className="flex items-center gap-3 relative">
+                      {getConnectedMcpUrls().includes(selectedConnectorUrl) ? (
+                        <button 
+                          onClick={() => { handleDisconnectMcp(selectedConnectorUrl); }}
+                          className="px-4 py-1.5 rounded-lg border border-app-border/50 text-app-textPrimary text-sm font-medium hover:bg-app-surface transition-colors"
+                        >
+                          Disconnect
+                        </button>
+                      ) : (
+                        <button 
+                          onClick={async () => {
+                            await connectMcp(selectedConnectorUrl);
+                            setMcpReloadState(prev => prev + 1);
+                          }}
+                          className="px-4 py-1.5 rounded-lg border border-app-border/50 text-app-textPrimary text-sm font-medium bg-app-surface hover:bg-app-surface/80 transition-colors"
+                        >
+                          Connect
+                        </button>
+                      )}
+                      <button 
+                        onClick={() => setShowConnectorMenu(!showConnectorMenu)}
+                        className="p-1 rounded-md text-app-textMuted hover:text-app-textPrimary hover:bg-app-surface transition-colors"
+                      >
+                        <span className="material-symbols-outlined text-[24px]">more_vert</span>
+                      </button>
+                      
+                      <AnimatePresence>
+                        {showConnectorMenu && (
+                          <motion.div
+                            initial={{ opacity: 0, y: -5 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -5 }}
+                            className="absolute top-full right-0 mt-2 w-48 bg-[#1e1e1d] border border-app-border/50 rounded-lg shadow-xl overflow-hidden z-50 py-1"
+                          >
+                            <button 
+                              onClick={async () => {
+                                setShowConnectorMenu(false);
+                                await connectMcp(selectedConnectorUrl);
+                                setMcpReloadState(prev => prev + 1);
+                              }} 
+                              className="flex items-center gap-2 w-full px-3 py-2 text-sm text-app-textPrimary hover:bg-app-surface/50 text-left transition-colors"
+                            >
+                              <span className="material-symbols-outlined text-[16px]">sync</span> Refresh tools list
+                            </button>
+                            <button 
+                              onClick={() => {
+                                setShowConnectorMenu(false);
+                                handleRemoveMcp(selectedConnectorUrl);
+                                setSelectedConnectorUrl(null);
+                              }} 
+                              className="flex items-center gap-2 w-full px-3 py-2 text-sm text-red-400 hover:bg-red-400/10 text-left transition-colors"
+                            >
+                              <span className="material-symbols-outlined text-[16px]">delete</span> Remove
+                            </button>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-2 mb-8">
+                    <span className="text-xs text-app-textMuted font-mono bg-app-surface px-2 py-1 rounded border border-app-border/30">{selectedConnectorUrl}</span>
+                    <button className="text-app-textMuted hover:text-app-textPrimary transition-colors">
+                      <span className="material-symbols-outlined text-[16px]">content_copy</span>
+                    </button>
+                  </div>
+                  
+                  <div className="flex-1 flex flex-col min-h-0 pr-2">
+                    <div className="mb-6 shrink-0">
+                      <h3 className="text-sm font-semibold text-app-textPrimary mb-1">Tool permissions</h3>
+                      <p className="text-sm text-app-textMuted">Choose when Claude is allowed to use these tools.</p>
+                    </div>
+                    
+                    <div className="flex items-center justify-between mb-4 border-b border-app-border/30 pb-2 shrink-0">
+                      <button 
+                        onClick={() => setShowConnectorTools(!showConnectorTools)}
+                        className="flex items-center gap-2 text-sm font-semibold text-app-textPrimary hover:text-app-textSecondary transition-colors"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">
+                          {showConnectorTools ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}
+                        </span>
+                        Other tools
+                        <span className="px-1.5 py-0.5 rounded-full bg-app-surface text-app-textMuted text-[11px]">{getMcpToolsForUrl(selectedConnectorUrl).length}</span>
+                      </button>
+                      
+                      {(() => {
+                        const tools = getMcpToolsForUrl(selectedConnectorUrl);
+                        const allState = tools.length > 0 && tools.every(t => getToolPermission(t.function.name) === getToolPermission(tools[0].function.name)) 
+                          ? getToolPermission(tools[0].function.name) 
+                          : 'mixed';
+                        
+                        const display = {
+                          allow: { icon: 'done_all', text: 'Allow all', color: 'text-white' },
+                          ask: { icon: 'front_hand', text: 'Needs approval', color: 'text-white' },
+                          block: { icon: 'block', text: 'Deny all', color: 'text-white' },
+                          mixed: { icon: 'tune', text: 'Mixed permissions', color: 'text-app-textMuted' },
+                        }[allState];
+
+                        const setAll = (mode: 'allow' | 'ask' | 'block') => {
+                          setToolPermissions(prev => {
+                            const updated = { ...prev };
+                            tools.forEach(t => {
+                              updated[t.function.name] = mode;
+                            });
+                            return updated;
+                          });
+                          setShowGlobalPermissionDropdown(false);
+                        };
+
+                        return (
+                          <div className="relative">
+                            <button 
+                              onClick={() => setShowGlobalPermissionDropdown(!showGlobalPermissionDropdown)}
+                              className="flex items-center px-3 py-1 rounded-lg border border-app-border/50 text-xs font-medium text-app-textPrimary hover:bg-app-surface transition-colors"
+                            >
+                              <AnimatePresence mode="wait">
+                                <motion.div
+                                  key={allState}
+                                  initial={{ opacity: 0, filter: 'blur(4px)' }}
+                                  animate={{ opacity: 1, filter: 'blur(0px)' }}
+                                  exit={{ opacity: 0, filter: 'blur(4px)' }}
+                                  transition={{ duration: 0.15 }}
+                                  className="flex items-center gap-1.5"
+                                >
+                                  <span className={`material-symbols-outlined text-[16px] ${display.color}`}>{display.icon}</span>
+                                  <span>{display.text}</span>
+                                </motion.div>
+                              </AnimatePresence>
+                              <span className="material-symbols-outlined text-[16px] ml-1.5">keyboard_arrow_down</span>
+                            </button>
+                            
+                            <AnimatePresence>
+                              {showGlobalPermissionDropdown && (
+                                <motion.div
+                                  initial={{ opacity: 0, y: -5 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, y: -5 }}
+                                  className="absolute top-full right-0 mt-2 w-48 bg-[#1e1e1d] border border-app-border/50 rounded-lg shadow-xl overflow-hidden z-50 py-1"
+                                >
+                                  <button onClick={() => setAll('allow')} className="flex items-center gap-2 w-full px-3 py-2 text-sm text-app-textPrimary hover:bg-app-surface/50 text-left transition-colors">
+                                    <span className="material-symbols-outlined text-[16px]">done_all</span> Allow all
+                                  </button>
+                                  <button onClick={() => setAll('ask')} className="flex items-center gap-2 w-full px-3 py-2 text-sm text-app-textPrimary hover:bg-app-surface/50 text-left transition-colors">
+                                    <span className="material-symbols-outlined text-[16px]">front_hand</span> Needs approval
+                                  </button>
+                                  <button onClick={() => setAll('block')} className="flex items-center gap-2 w-full px-3 py-2 text-sm text-app-textPrimary hover:bg-app-surface/50 text-left transition-colors">
+                                    <span className="material-symbols-outlined text-[16px]">block</span> Deny all
+                                  </button>
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                    
+                    <AnimatePresence>
+                      {showConnectorTools && (
+                        <motion.div 
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          className="flex flex-col flex-1 overflow-y-auto custom-scrollbar min-h-0 pr-2 pb-4"
+                        >
+                          {getMcpToolsForUrl(selectedConnectorUrl).map((tool, idx) => (
+                            <div key={idx} className="flex items-center justify-between py-3 border-b border-app-border/20 last:border-0 hover:bg-app-surface/30 px-2 rounded-lg transition-colors">
+                              <span className="text-sm text-app-textPrimary">{tool.function.name}</span>
+                              <div className="flex items-center bg-[#161615] border border-app-border/20 rounded-lg p-0.5">
+                                {(['allow', 'ask', 'block'] as const).map(mode => (
+                                  <button
+                                    key={mode}
+                                    onClick={() => setToolPermissions(prev => ({ ...prev, [tool.function.name]: mode }))}
+                                    className={`relative w-8 h-8 flex items-center justify-center rounded-md transition-colors ${
+                                      getToolPermission(tool.function.name) === mode ? 'text-white' : 'text-app-textMuted hover:text-white'
+                                    }`}
+                                    title={mode === 'allow' ? "Allow" : mode === 'ask' ? "Needs approval" : "Deny"}
+                                  >
+                                    {getToolPermission(tool.function.name) === mode && (
+                                      <motion.div
+                                        layoutId={`permission-${tool.function.name}`}
+                                        className="absolute inset-0 bg-app-surface border border-app-border/50 rounded-md shadow-sm"
+                                        transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
+                                      />
+                                    )}
+                                    <span className="material-symbols-outlined text-[18px] relative z-10">
+                                      {mode === 'allow' ? 'check' : mode === 'ask' ? 'front_hand' : 'block'}
+                                    </span>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="list"
+                    initial={{ opacity: 0, filter: 'blur(8px)' }}
+                    animate={{ opacity: 1, filter: 'blur(0px)' }}
+                    exit={{ opacity: 0, filter: 'blur(8px)' }}
+                    transition={{ duration: 0.2 }}
+                    className="flex-1 flex flex-col h-full overflow-hidden"
+                  >
+                    <h1 className="text-xl font-semibold mb-4 pr-24">Connectors</h1>
+                  
+                  <div className="flex items-center bg-[#161615] border border-app-border/20 rounded-lg p-0.5 w-fit mb-6">
+                    {['All', 'Connected', 'Disconnected'].map((tab) => (
+                      <button
+                        key={tab}
+                        onClick={() => setActiveConnectorTab(tab)}
+                        className={`relative px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                          activeConnectorTab === tab
+                            ? 'text-white'
+                            : 'text-app-textMuted hover:text-white'
+                        }`}
+                      >
+                        {activeConnectorTab === tab && (
+                          <motion.div
+                            layoutId="activeConnectorTab"
+                            className="absolute inset-0 bg-app-surface border border-app-border/50 rounded-md shadow-sm"
+                            transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
+                          />
+                        )}
+                        <span className="relative z-10">{tab}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex-1 flex flex-col min-h-0 mt-4">
+                    {/* Table Headers */}
+                    <div className="flex items-center px-4 py-2 text-xs font-semibold text-app-textSecondary uppercase tracking-wider mb-2 border-b border-app-border/20">
+                      <div className="flex-1">Connector</div>
+                      <div className="w-32">Type</div>
+                      <div className="w-32">Status</div>
+                    </div>
+                    
+                    <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+                      {(() => {
+                        const filteredMcpServers = mcpServers.filter(url => {
+                          if (activeConnectorTab === 'All') return true;
+                          const isConnected = getConnectedMcpUrls().includes(url);
+                          if (activeConnectorTab === 'Connected') return isConnected;
+                          if (activeConnectorTab === 'Disconnected') return !isConnected;
+                          return true;
+                        });
+
+                        return (
+                          <div className="flex flex-col gap-1">
+                            <AnimatePresence mode="popLayout">
+                              {filteredMcpServers.length === 0 ? (
+                                <motion.div
+                                  key={`empty-${activeConnectorTab}`}
+                                  initial={{ opacity: 0, filter: 'blur(4px)' }}
+                                  animate={{ opacity: 1, filter: 'blur(0px)' }}
+                                  exit={{ opacity: 0, filter: 'blur(4px)' }}
+                                  transition={{ duration: 0.15 }}
+                                  className="flex flex-col items-center justify-center text-app-textMuted py-12 opacity-50"
+                                >
+                                  <span className="material-symbols-outlined text-[32px] mb-2">cable</span>
+                                  <p className="text-sm">{mcpServers.length === 0 ? "No connectors added yet." : "No connectors found."}</p>
+                                </motion.div>
+                              ) : (
+                                filteredMcpServers.map((url) => (
+                                  <motion.div 
+                                    layout
+                                    key={url} 
+                                    initial={{ opacity: 0, filter: 'blur(4px)' }}
+                                    animate={{ opacity: 1, filter: 'blur(0px)' }}
+                                    exit={{ opacity: 0, filter: 'blur(4px)' }}
+                                    transition={{ duration: 0.2 }}
+                                    onClick={() => setSelectedConnectorUrl(url)}
+                                    className="flex items-center px-4 py-3 bg-[#2a2a28] rounded-xl cursor-pointer hover:bg-[#343432] transition-colors group relative border-b border-app-border/10 last:border-0"
+                                  >
+                                    {/* Connector Column */}
+                                    <div className="flex-1 flex items-center gap-3">
+                                      <div className="w-8 h-8 rounded bg-[#1e1e1c] border border-app-border/20 flex items-center justify-center shadow-sm">
+                                        <span className="material-symbols-outlined text-[18px] text-app-textPrimary">cable</span>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-[14px] font-medium text-white">{getMcpName(url)}</span>
+                                      </div>
+                                    </div>
+
+                                    {/* Type Column */}
+                                    <div className="w-32 flex items-center gap-1.5">
+                                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-[#3e3e3b] text-[#b3b1ad] tracking-wide uppercase">Web</span>
+                                      <span className="text-[12px] text-app-textMuted">Custom</span>
+                                    </div>
+
+                                    {/* Status Column */}
+                                    <div className="w-32 flex items-center justify-between relative">
+                                      <div className="flex-1 relative h-7 flex items-center">
+                                        <AnimatePresence mode="wait">
+                                          {getConnectedMcpUrls().includes(url) ? (
+                                            <motion.div
+                                              key="connected"
+                                              initial={{ opacity: 0, filter: 'blur(4px)', scale: 0.95 }}
+                                              animate={{ opacity: 1, filter: 'blur(0px)', scale: 1 }}
+                                              exit={{ opacity: 0, filter: 'blur(4px)', scale: 0.95 }}
+                                              transition={{ duration: 0.15 }}
+                                              className="absolute left-0 flex items-center gap-1.5 text-app-textPrimary"
+                                            >
+                                              <span className="material-symbols-outlined text-[18px] text-app-textMuted">check</span>
+                                            </motion.div>
+                                          ) : (
+                                            <motion.button 
+                                              key="connect-btn"
+                                              initial={{ opacity: 0, filter: 'blur(4px)', scale: 0.95 }}
+                                              animate={{ opacity: 1, filter: 'blur(0px)', scale: 1 }}
+                                              exit={{ opacity: 0, filter: 'blur(4px)', scale: 0.95 }}
+                                              transition={{ duration: 0.15 }}
+                                              onClick={async (e) => {
+                                                e.stopPropagation();
+                                                await connectMcp(url);
+                                                setMcpReloadState(prev => prev + 1);
+                                              }}
+                                              className="absolute left-0 px-3 py-1 bg-[#161615] hover:bg-[#424240] border border-app-border/30 rounded-lg text-[12px] font-medium text-white transition-colors whitespace-nowrap"
+                                            >
+                                              Connect
+                                            </motion.button>
+                                          )}
+                                        </AnimatePresence>
+                                      </div>
+                                      <button 
+                                        onClick={(e) => { e.stopPropagation(); handleRemoveMcp(url); }}
+                                        className="text-app-textMuted hover:text-red-400 opacity-0 group-hover:opacity-100 transition-colors p-1"
+                                        title="Remove"
+                                      >
+                                        <span className="material-symbols-outlined text-[18px]">delete</span>
+                                      </button>
+                                    </div>
+                                  </motion.div>
+                                ))
+                              )}
+                            </AnimatePresence>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+
+    {/* Add Connector Modal */}
+    <AnimatePresence>
+      {showAddConnectorModal && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center font-sans">
+          {/* Backdrop */}
+          <motion.div 
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
+            className="absolute inset-0 bg-transparent"
+            onClick={() => setShowAddConnectorModal(false)}
+          />
+          
+          {/* Modal Container */}
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={{ duration: 0.15 }}
+            className="relative w-[480px] max-w-[95vw] max-h-[90vh] overflow-y-auto custom-scrollbar bg-[#2a2a28] rounded-xl flex flex-col border border-[#3e3e3b] text-[#E8E5DC] shadow-2xl"
+          >
+            {/* Header */}
+            <div className="px-5 pt-5 pb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <h2 className="text-[17px] font-semibold text-[#E8E5DC]">Add custom connector</h2>
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-[#3e3e3b] text-[#b3b1ad] tracking-wide">BETA</span>
+              </div>
+              <button 
+                onClick={() => setShowAddConnectorModal(false)}
+                className="p-1 rounded-md hover:bg-[#3e3e3b] text-[#b3b1ad] hover:text-[#E8E5DC] transition-colors"
+              >
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="px-5 pb-5 flex flex-col gap-5">
+              <p className="text-[14px] text-[#b3b1ad] leading-relaxed">
+                Connect Claude to your data and tools. <a href="#" className="text-[#a4a098] underline hover:text-[#E8E5DC] transition-colors">Learn more about connectors</a> or explore <a href="#" className="text-[#a4a098] underline hover:text-[#E8E5DC] transition-colors">pre-built ones</a>.
+              </p>
+
+              <div className="flex flex-col gap-3">
+                <input 
+                  type="text" 
+                  value={mcpInputName}
+                  onChange={(e) => setMcpInputName(e.target.value)}
+                  placeholder="Name" 
+                  className="w-full bg-[#1e1e1d] border border-[#3e3e3b] rounded-lg px-3 py-2 text-[14px] text-[#E8E5DC] placeholder-[#6b6965] focus:outline-none focus:border-[#6b6965] transition-colors"
+                />
+                <input 
+                  type="text" 
+                  value={mcpInputUrl}
+                  onChange={(e) => setMcpInputUrl(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleConnectMcp()}
+                  placeholder="Remote MCP server URL" 
+                  className="w-full bg-[#1e1e1d] border border-[#3e3e3b] rounded-lg px-3 py-2 text-[14px] text-[#E8E5DC] placeholder-[#6b6965] focus:outline-none focus:border-[#6b6965] transition-colors"
+                />
+              </div>
+
+              {/* Advanced Settings */}
+              <div>
+                <button 
+                  onClick={() => setShowAdvancedConnectorSettings(!showAdvancedConnectorSettings)}
+                  className="flex items-center gap-1.5 text-[14px] text-[#b3b1ad] hover:text-[#E8E5DC] transition-colors"
+                >
+                  <span className="material-symbols-outlined text-[18px]">
+                    {showAdvancedConnectorSettings ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}
+                  </span>
+                  Advanced settings
+                </button>
+                
+                <AnimatePresence>
+                  {showAdvancedConnectorSettings && (
+                    <motion.div 
+                      initial={{ height: 0, opacity: 0, marginTop: 0 }}
+                      animate={{ height: 'auto', opacity: 1, marginTop: 12 }}
+                      exit={{ height: 0, opacity: 0, marginTop: 0 }}
+                      className="overflow-hidden flex flex-col gap-3"
+                    >
+                      <input 
+                        type="text" 
+                        placeholder="OAuth Client ID (optional)" 
+                        className="w-full bg-[#1e1e1d] border border-[#3e3e3b] rounded-lg px-3 py-2 text-[14px] text-[#E8E5DC] placeholder-[#6b6965] focus:outline-none focus:border-[#6b6965] transition-colors"
+                      />
+                      <input 
+                        type="password" 
+                        placeholder="OAuth Client Secret (optional)" 
+                        className="w-full bg-[#1e1e1d] border border-[#3e3e3b] rounded-lg px-3 py-2 text-[14px] text-[#E8E5DC] placeholder-[#6b6965] focus:outline-none focus:border-[#6b6965] transition-colors"
+                      />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              {/* Footer text */}
+              <div className="mt-1 text-[13px] text-[#6b6965] leading-relaxed flex flex-col gap-2">
+                <p>Only use connectors from developers you trust. Anthropic does not control which tools developers make available and cannot verify that they will work as intended or that they won't change.</p>
+                <p>Building an MCP server? <a href="#" className="underline hover:text-[#b3b1ad] transition-colors">Report issues and subscribe to updates here</a></p>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="px-5 py-4 border-t border-[#3e3e3b] flex items-center justify-end gap-3 bg-[#262624]">
+              <button 
+                onClick={() => setShowAddConnectorModal(false)}
+                className="px-4 py-1.5 rounded-lg bg-[#3e3e3b] hover:bg-[#4d4d4b] text-[#E8E5DC] text-[14px] font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleConnectMcp}
+                className="px-6 py-1.5 bg-[#161615] border border-app-border/20 rounded-lg text-sm font-medium text-app-textPrimary hover:bg-app-surface transition-colors shadow-sm disabled:opacity-50"
+                disabled={!mcpInputUrl.trim()}
+              >
+                Add
+              </button>
+            </div>
+          </motion.div>
+        </div>
       )}
     </AnimatePresence>
   </div>

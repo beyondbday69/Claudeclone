@@ -24,7 +24,7 @@
 
 :root {
   /* Default to dark if no class */
-  --theme-app-main: #1F1E1B;
+  --theme-app-main: #1F1F1D;
   --theme-app-surface: #2B2A27;
   --theme-app-surfaceHover: #363430;
   --theme-app-border: #363430;
@@ -40,7 +40,7 @@
 
 :root.light {
   /* Light mode colors */
-  --theme-app-main: #FAF9F5;
+  --theme-app-main: #1F1F1D;
   --theme-app-surface: #F2F0E9;
   --theme-app-surfaceHover: #E8E5DC;
   --theme-app-border: #E8E5DC;
@@ -56,7 +56,7 @@
 
 :root.dark {
   /* Dark mode colors */
-  --theme-app-main: #1F1E1B;
+  --theme-app-main: #1F1F1D;
   --theme-app-surface: #2B2A27;
   --theme-app-surfaceHover: #363430;
   --theme-app-border: #363430;

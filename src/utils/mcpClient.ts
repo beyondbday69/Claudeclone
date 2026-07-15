@@ -62,6 +62,10 @@ export function getMcpTools() {
   return allTools;
 }
 
+export function getMcpToolsForUrl(url: string) {
+  return connections.get(url)?.tools || [];
+}
+
 export async function executeMcpTool(name: string, args: any) {
   for (const conn of connections.values()) {
     const hasTool = conn.tools.some(t => t.function.name === name);
