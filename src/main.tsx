@@ -3,9 +3,14 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 
+import { ReactLenis } from 'lenis/react';
+import 'lenis/dist/lenis.css';
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <ReactLenis root>
+      <App />
+    </ReactLenis>
   </StrictMode>,
 );
 

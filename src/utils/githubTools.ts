@@ -1,11 +1,13 @@
 import { Octokit } from '@octokit/rest';
 
 export const getSystemPrompt = (owner?: string, repo?: string, branch?: string, mode: 'build' | 'plan' = 'build') => {
+  const currentDate = new Date().toLocaleString();
   let base = owner && repo 
     ? `You are a coding agent working against the GitHub repository ${owner}/${repo} on branch ${branch}.\nYou interact with this repository through a tool API.\nAlways read relevant files before editing to understand context.`
     : `You are an AI coding assistant. You have access to tools to help the user.`;
   
   base += `\nDO NOT use emojis in your responses.`;
+  base += `\nCurrent Date and Time: ${currentDate}`;
   
   if (mode === 'plan') {
     return `${base}\nYou are in PLAN MODE. You should analyze the user's request and create a detailed plan of what changes need to be made. Use tools to gather context, but DO NOT modify any files or execute actions.`;

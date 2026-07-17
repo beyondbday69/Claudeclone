@@ -35,10 +35,128 @@ export interface ChatSession {
 }
 
 import { getConnectedMcpUrls, disconnectMcp } from '../utils/mcpClient';
+
+const MessageItem = React.memo(({ msg, viewMode, messages, executePendingTools, handleDeny, ToolGroupViewComponent }: any) => {
+  if (msg.role === 'system') {
+     return (
+       <div className="text-center text-xs text-app-textMuted/70 my-2">
+         {msg.content}
+       </div>
+     );
+  }
+  if (msg.role === 'tool') return null;
+  
+  if (msg.role === 'user') {
+     return (
+       <div className="flex justify-end">
+          <div className="bg-app-userBubble/60 border border-app-border/30 px-4 py-3 rounded-xl max-w-[85%] text-sm leading-relaxed text-app-textPrimary/95 whitespace-pre-wrap text-[16px]" style={{ fontFamily: '"Google Sans", "Noto Sans", sans-serif' }}>
+              {msg.content}
+          </div>
+       </div>
+     );
+  }
+
+  if ((!msg.content || msg.content.trim() === '') && (!msg.toolCalls || msg.toolCalls.length === 0)) {
+     return null;
+  }
+
+  return (
+    <div className="text-sm leading-relaxed space-y-5 group">
+       <div className="space-y-4">
+         {msg.content && (
+           viewMode === 'raw' ? (
+              <pre className="whitespace-pre-wrap font-mono text-[13px] text-app-textSecondary">
+                {msg.content}
+              </pre>
+           ) : (
+              <div className="markdown-body max-w-none text-[16px]" style={{ fontFamily: '"Noto Serif", serif' }}>
+                <Markdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    table({ children, ...props }: any) {
+                      return (
+                        <div className="w-full overflow-x-auto my-6 rounded-xl border border-[var(--color-app-borderLight)] shadow-sm bg-app-surface/20">
+                          <table className="w-full text-left border-collapse text-sm !m-0" {...props}>
+                            {children}
+                          </table>
+                        </div>
+                      );
+                    },
+                    thead({ children, ...props }: any) {
+                      return <thead className="bg-[#1a1b26]/50 text-app-textSecondary uppercase tracking-wider text-[11px] border-b border-[var(--color-app-borderLight)]" {...props}>{children}</thead>;
+                    },
+                    th({ children, ...props }: any) {
+                      return <th className="px-4 py-3 font-semibold" {...props}>{children}</th>;
+                    },
+                    td({ children, ...props }: any) {
+                      return <td className="px-4 py-3 text-app-textPrimary" {...props}>{children}</td>;
+                    },
+                    tr({ children, ...props }: any) {
+                      return <tr className="hover:bg-app-surface/60 transition-colors border-b border-[var(--color-app-borderLight)]/50 border-t-0 last:border-b-0" {...props}>{children}</tr>;
+                    },
+                    pre({ children }: any) {
+                      return <>{children}</>;
+                    },
+                    code({ node, inline, className, children, ...props }: any) {
+                      const match = /language-(\w+)/.exec(className || '');
+                      const content = String(children).replace(/\n$/, '');
+
+                      return !inline && match ? (
+                        <div className="my-4 rounded-xl overflow-hidden border border-[var(--color-app-borderLight)] shadow-sm bg-[#252523]">
+                          <div className="px-4 pt-3 pb-1 bg-transparent flex items-center justify-between select-none">
+                            <span className="text-xs font-mono text-app-textMuted lowercase font-medium">{match[1]}</span>
+                          </div>
+                          <SyntaxHighlighter
+                            style={tokyoNight as any}
+                            language={match[1]}
+                            PreTag="div"
+                            className="text-sm font-mono custom-scrollbar !m-0 !bg-transparent"
+                            customStyle={{ backgroundColor: 'transparent', padding: '1rem', margin: 0 }}
+                            {...props}
+                          >
+                            {content}
+                          </SyntaxHighlighter>
+                        </div>
+                      ) : (
+                        <code className="bg-[var(--color-app-surfaceHover)] text-[var(--color-app-accent)] px-1.5 py-0.5 rounded-md font-mono text-sm border border-[var(--color-app-borderLight)]" {...props}>
+                          {children}
+                        </code>
+                      );
+                    }
+                  }}
+                >
+                  {msg.content}
+                </Markdown>
+              </div>
+           )
+         )}
+         
+         {msg.toolCalls && msg.toolCalls.length > 0 && (
+            <ToolGroupViewComponent msg={msg} messages={messages} executePendingTools={executePendingTools} handleDeny={handleDeny} />
+         )}
+       </div>
+    </div>
+  );
+}, (prevProps, nextProps) => {
+   return prevProps.msg.content === nextProps.msg.content && 
+          prevProps.viewMode === nextProps.viewMode && 
+          JSON.stringify(prevProps.msg.toolCalls) === JSON.stringify(nextProps.msg.toolCalls) &&
+          (prevProps.msg.toolCalls || []).every((tc: any) => {
+             const prevRes = prevProps.messages.find((m:any) => m.role === 'tool' && m.toolCallId === tc.id);
+             const nextRes = nextProps.messages.find((m:any) => m.role === 'tool' && m.toolCallId === tc.id);
+             return prevRes === nextRes;
+          }) &&
+          (prevProps.messages.some((m:any) => m.role === 'assistant' && prevProps.messages.indexOf(m) > prevProps.messages.indexOf(prevProps.msg)) === 
+           nextProps.messages.some((m:any) => m.role === 'assistant' && nextProps.messages.indexOf(m) > nextProps.messages.indexOf(nextProps.msg)));
+});
 export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelProps) {
   const [mcpReloadState, setMcpReloadState] = useState(0);
   useEffect(() => {
-    mcpServers.forEach(url => {
+    const savedActive = localStorage.getItem('active_mcp_servers');
+    const allSaved = localStorage.getItem('mcp_servers');
+    const activeUrls = savedActive ? JSON.parse(savedActive) : (allSaved ? JSON.parse(allSaved) : []);
+    
+    activeUrls.forEach((url: string) => {
         connectMcp(url).then(res => {
             if (res.success) {
                 setMcpReloadState(prev => prev + 1);
@@ -46,6 +164,21 @@ export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelP
         }).catch(console.error);
     });
   }, []);
+
+  const saveMcpConnectionState = (url: string, connected: boolean) => {
+    const saved = localStorage.getItem('active_mcp_servers');
+    let active = saved ? JSON.parse(saved) : null;
+    if (!active) {
+      const allSaved = localStorage.getItem('mcp_servers');
+      active = allSaved ? JSON.parse(allSaved) : [];
+    }
+    if (connected && !active.includes(url)) {
+      active.push(url);
+    } else if (!connected) {
+      active = active.filter((u: string) => u !== url);
+    }
+    localStorage.setItem('active_mcp_servers', JSON.stringify(active));
+  };
 
   const [model, setModel] = useState<string>(() => localStorage.getItem('selected_model') || 'deepseek-ai/deepseek-v4-flash');
   const [provider, setProvider] = useState<string>(() => localStorage.getItem('selected_provider') || 'opencode');
@@ -314,6 +447,7 @@ export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelP
     const url = mcpInputUrl.trim();
     const result = await connectMcp(url);
     if (result.success) {
+       saveMcpConnectionState(url, true);
        if (!mcpServers.includes(url)) {
            setMcpServers([...mcpServers, url]);
        }
@@ -332,19 +466,71 @@ export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelP
 
   const handleDisconnectMcp = (url: string) => {
     disconnectMcp(url);
+    saveMcpConnectionState(url, false);
     setMcpReloadState(prev => prev + 1);
     setMessages(prev => [...prev, { id: Date.now().toString(), role: 'system', content: `Disconnected from MCP server ${url}.` }]);
   };
 
   const handleRemoveMcp = (url: string) => {
     disconnectMcp(url);
+    saveMcpConnectionState(url, false);
     setMcpServers(mcpServers.filter(u => u !== url));
     setMcpReloadState(prev => prev + 1);
     setMessages(prev => [...prev, { id: Date.now().toString(), role: 'system', content: `Removed MCP server ${url}.` }]);
   };
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  const scrollTarget = useRef<number | null>(null);
+  const isScrolling = useRef(false);
+  const userScrolledUp = useRef(false);
+
+  const handleUserScroll = () => {
+    isScrolling.current = false;
+    scrollTarget.current = null;
+    userScrolledUp.current = true;
+  };
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    if (scrollHeight - scrollTop - clientHeight <= 50) {
+      userScrolledUp.current = false;
+    }
+  };
+
+  const scrollToBottom = (force = false) => {
+    const container = document.getElementById('chat-container');
+    if (!container) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+      return;
+    }
+    
+    if (userScrolledUp.current && !force) return;
+    if (force) userScrolledUp.current = false;
+    
+    scrollTarget.current = container.scrollHeight - container.clientHeight;
+    
+    if (!isScrolling.current) {
+      isScrolling.current = true;
+      const step = () => {
+        if (scrollTarget.current === null) {
+          isScrolling.current = false;
+          return;
+        }
+        
+        const currentTop = container.scrollTop;
+        const targetTop = scrollTarget.current;
+        const diff = targetTop - currentTop;
+        
+        if (Math.abs(diff) < 1) {
+          container.scrollTop = targetTop;
+          isScrolling.current = false;
+          scrollTarget.current = null;
+        } else {
+          container.scrollTop = currentTop + diff * 0.15;
+          requestAnimationFrame(step);
+        }
+      };
+      requestAnimationFrame(step);
+    }
   };
 
   useEffect(() => {
@@ -519,6 +705,7 @@ export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelP
 
     const task = input.trim();
     setInput('');
+    scrollToBottom(true);
     setShowMentions(false);
     
     const newMsgs = [...messages, { id: Date.now().toString() + Math.random().toString(), role: 'user' as const, content: task }];
@@ -958,8 +1145,8 @@ return (
       <div className="flex flex-col h-full min-w-[260px] w-[260px]">
         {/* Toggle Button Area */}
         <div className="flex items-center justify-between px-2.5 pt-3 pb-2 shrink-0">
-           <span className={`text-base font-serif font-semibold text-app-textPrimary pl-1.5 whitespace-nowrap transition-opacity duration-150 ${showSessionsPanel ? 'opacity-100' : 'opacity-0'}`}>
-             ClaudeClone
+           <span className={`text-2xl font-serif font-semibold text-app-textPrimary pl-1.5 whitespace-nowrap transition-opacity duration-150 ${showSessionsPanel ? 'opacity-100' : 'opacity-0'}`}>
+             Claude
            </span>
            <div className={`transition-all duration-200 ${showSessionsPanel ? 'transform translate-x-0' : 'transform -translate-x-[204px]'}`}>
              <button onClick={() => setShowSessionsPanel(!showSessionsPanel)} className="text-app-textMuted hover:text-app-textPrimary transition-premium p-1.5 rounded-lg hover:bg-app-surface">
@@ -977,8 +1164,8 @@ return (
              className="flex items-center gap-2 w-full p-1.5 rounded-lg hover:bg-app-surface text-app-textPrimary transition-premium overflow-hidden"
              title="New Chat"
            >
-             <span className="material-symbols-outlined text-[20px] shrink-0 text-app-textMuted">edit_square</span>
-             <span className={`text-sm font-medium whitespace-nowrap transition-opacity duration-150 ${showSessionsPanel ? 'opacity-100' : 'opacity-0'}`}>
+             <span className="material-symbols-outlined text-[20px] shrink-0 text-[#faf9f5]">edit_square</span>
+             <span className={`text-[#faf9f5] text-sm font-medium whitespace-nowrap transition-opacity duration-150 ${showSessionsPanel ? 'opacity-100' : 'opacity-0'}`}>
                New chat
              </span>
            </button>
@@ -988,8 +1175,8 @@ return (
              className="flex items-center gap-2 w-full p-1.5 rounded-lg hover:bg-[var(--color-app-surface)] text-app-textPrimary transition-premium overflow-hidden"
              title="Customize"
            >
-             <span className="material-symbols-outlined text-[20px] shrink-0 text-app-textMuted">home_repair_service</span>
-             <span className={`text-sm font-medium whitespace-nowrap transition-opacity duration-150 ${showSessionsPanel ? 'opacity-100' : 'opacity-0'}`}>
+             <span className="material-symbols-outlined text-[20px] shrink-0 text-[#faf9f5]">home_repair_service</span>
+             <span className={`text-[#faf9f5] text-sm font-medium whitespace-nowrap transition-opacity duration-150 ${showSessionsPanel ? 'opacity-100' : 'opacity-0'}`}>
                Customize
              </span>
            </button>
@@ -997,7 +1184,7 @@ return (
         
         {/* Chat List */}
         <div className={`p-3 overflow-y-auto custom-scrollbar flex-1 flex flex-col gap-1 transition-opacity duration-150 ${showSessionsPanel ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-          <div className="px-2 pt-2 pb-1 text-xs font-semibold text-app-textSecondary whitespace-nowrap">
+          <div className="px-2 pt-2 pb-1 text-xs font-semibold text-[#a09d96] whitespace-nowrap">
             Recents
           </div>
           
@@ -1139,17 +1326,7 @@ return (
         </div>
 
         <div className="flex flex-wrap items-center gap-2 md:gap-3 w-full lg:w-auto">
-           <div className="flex bg-app-surface/40 border border-app-border/30 rounded p-0.5">
-             <button
-               onClick={() => setWebSearchEnabled(!webSearchEnabled)}
-               className={`px-2.5 py-1 text-xs rounded transition-premium flex items-center gap-1.5 ${webSearchEnabled ? 'bg-app-surface text-app-textPrimary shadow-sm' : 'text-app-textMuted hover:text-app-textSecondary'}`}
-               title="Toggle Web Search Tool"
-             >
-               <i className="ph-light ph-globe text-sm"></i>
-               Search
-             </button>
-           </div>
-           
+
            <div className="flex bg-app-surface/40 border border-app-border/30 rounded p-0.5">
              <button
                onClick={() => setAgentMode('build')}
@@ -1183,7 +1360,13 @@ return (
       </header>
 
       {/* Chat History */}
-      <div className="flex-1 overflow-y-auto px-4 md:px-0 pb-36 custom-scrollbar" id="chat-container">
+      <div 
+        className="flex-1 overflow-y-auto px-4 md:px-0 pb-36 custom-scrollbar" 
+        id="chat-container"
+        onWheel={handleUserScroll}
+        onTouchMove={handleUserScroll}
+        onScroll={handleScroll}
+      >
         <div className="max-w-2xl mx-auto py-8 space-y-10">
           {(() => {
              const processedMessages = messages.map(m => ({...m}));
@@ -1215,144 +1398,22 @@ return (
                 }
              }
              
-             return processedMessages.map((msg) => {
-            if (msg.role === 'system') {
-               return (
-                 <div key={msg.id} className="text-center text-xs text-app-textMuted/70 my-2">
-                   {msg.content}
-                 </div>
-               );
-            }
-            if (msg.role === 'tool') return null; // Tool results handled inside AI blocks
-            
-            if (msg.role === 'user') {
-               return (
-                 <div key={msg.id} className="flex justify-end">
-                    <div className="bg-app-userBubble/60 border border-app-border/30 px-4 py-3 rounded-xl max-w-[85%] text-sm leading-relaxed text-app-textPrimary/95 whitespace-pre-wrap text-[16px]" style={{ fontFamily: '"Google Sans", "Noto Sans", sans-serif' }}>
-                        {msg.content}
-                    </div>
-                 </div>
-               );
-            }
-
-            // AI Block
-            if ((!msg.content || msg.content.trim() === '') && (!msg.toolCalls || msg.toolCalls.length === 0)) {
-               return null;
-            }
-
-            return (
-              <div key={msg.id} className="text-sm leading-relaxed space-y-5 group">
-                 <div className="space-y-4">
-                   {msg.content && (
-                     viewMode === 'raw' ? (
-                        <pre className="whitespace-pre-wrap font-mono text-[13px] text-app-textSecondary">
-                          {msg.content}
-                        </pre>
-                     ) : (
-                        <div className="markdown-body max-w-none text-[16px]" style={{ fontFamily: '"Noto Serif", serif' }}>
-                          <Markdown
-                            remarkPlugins={[remarkGfm]}
-                            components={{
-                              table({ children, ...props }: any) {
-                                return (
-                                  <div className="w-full overflow-x-auto my-6 rounded-xl border border-[var(--color-app-borderLight)] shadow-sm bg-app-surface/20">
-                                    <table className="w-full text-left border-collapse text-sm !m-0" {...props}>
-                                      {children}
-                                    </table>
-                                  </div>
-                                );
-                              },
-                              thead({ children, ...props }: any) {
-                                return <thead className="bg-[#1a1b26]/50 text-app-textSecondary uppercase tracking-wider text-[11px] border-b border-[var(--color-app-borderLight)]" {...props}>{children}</thead>;
-                              },
-                              th({ children, ...props }: any) {
-                                return <th className="px-4 py-3 font-semibold" {...props}>{children}</th>;
-                              },
-                              td({ children, ...props }: any) {
-                                return <td className="px-4 py-3 text-app-textPrimary" {...props}>{children}</td>;
-                              },
-                              tr({ children, ...props }: any) {
-                                return <tr className="hover:bg-app-surface/60 transition-colors border-b border-[var(--color-app-borderLight)]/50 border-t-0 last:border-b-0" {...props}>{children}</tr>;
-                              },
-                              pre({ children }: any) {
-                                return <>{children}</>;
-                              },
-                              code({ node, inline, className, children, ...props }: any) {
-                                const match = /language-(\w+)/.exec(className || '');
-                                const content = String(children).replace(/\n$/, '');
-
-                                return !inline && match ? (
-                                  <div className="my-4 rounded-xl overflow-hidden border border-[var(--color-app-borderLight)] shadow-sm bg-[#252523]">
-                                    <div className="px-4 pt-3 pb-1 bg-transparent flex items-center justify-between select-none">
-                                      <span className="text-xs font-mono text-app-textMuted lowercase font-medium">{match[1]}</span>
-                                    </div>
-                                    <SyntaxHighlighter
-                                      style={tokyoNight as any}
-                                      language={match[1]}
-                                      PreTag="div"
-                                      className="text-sm font-mono custom-scrollbar !m-0 !bg-transparent"
-                                      customStyle={{ backgroundColor: 'transparent', padding: '1rem', margin: 0 }}
-                                      {...props}
-                                    >
-                                      {content}
-                                    </SyntaxHighlighter>
-                                  </div>
-                                ) : (
-                                  <code className="bg-[var(--color-app-surfaceHover)] text-[var(--color-app-accent)] px-1.5 py-0.5 rounded-md font-mono text-sm border border-[var(--color-app-borderLight)]" {...props}>
-                                    {children}
-                                  </code>
-                                );
-                              }
-                            }}
-                          >
-                            {msg.content}
-                          </Markdown>
-                        </div>
-                     )
-                   )}
-                   
-                   {msg.toolCalls && msg.toolCalls.length > 0 && (
-                      <ToolGroupView msg={msg} messages={messages} executePendingTools={executePendingTools} handleDeny={handleDeny} />
-                   )}
-                   
-                   {/* Action Bar */}
-                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pt-1 -ml-1.5">
-                       <button 
-                         onClick={() => navigator.clipboard.writeText(msg.content || '')} 
-                         className="p-1.5 rounded-md text-app-textMuted hover:text-app-textPrimary hover:bg-app-surfaceHover transition-colors flex items-center justify-center"
-                         title="Copy text"
-                       >
-                         <Copy className="w-4 h-4" />
-                       </button>
-                       <button 
-                         className="p-1.5 rounded-md text-app-textMuted hover:text-app-textPrimary hover:bg-app-surfaceHover transition-colors flex items-center justify-center"
-                         title="Regenerate"
-                       >
-                         <i className="ph-light ph-arrows-clockwise text-[16px]"></i>
-                       </button>
-                       <div className="w-px h-3.5 bg-app-borderLight/60 mx-1"></div>
-                       <button 
-                         className="p-1.5 rounded-md text-app-textMuted hover:text-app-textPrimary hover:bg-app-surfaceHover transition-colors flex items-center justify-center"
-                         title="Good response"
-                       >
-                         <i className="ph-light ph-thumbs-up text-[16px]"></i>
-                       </button>
-                       <button 
-                         className="p-1.5 rounded-md text-app-textMuted hover:text-app-textPrimary hover:bg-app-surfaceHover transition-colors flex items-center justify-center"
-                         title="Bad response"
-                       >
-                         <i className="ph-light ph-thumbs-down text-[16px]"></i>
-                       </button>
-                   </div>
-                 </div>
-              </div>
-            );
-          })})()}
+             return processedMessages.map((msg) => (
+               <MessageItem 
+                 key={msg.id} 
+                 msg={msg} 
+                 viewMode={viewMode} 
+                 messages={messages} 
+                 executePendingTools={executePendingTools} 
+                 handleDeny={handleDeny} 
+                 ToolGroupViewComponent={ToolGroupView} 
+               />
+             ));
+          })()}
           
           {running && (
-             <div className="flex items-center gap-2 text-xs text-app-textMuted">
-                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                 <span>Claude is thinking...</span>
+             <div className="flex items-center gap-2 text-xs">
+                 <span className="animate-shimmer font-medium">Claude is thinking...</span>
              </div>
           )}
           
@@ -1396,6 +1457,16 @@ return (
                     </button>
                     <button className="p-1.5 text-app-textMuted hover:text-app-textSecondary rounded hover:bg-app-surface/60 transition-premium" title="Use prompt">
                         <i className="ph-light ph-file-text text-md"></i>
+                    </button>
+                    <button 
+                        onClick={() => setWebSearchEnabled(!webSearchEnabled)}
+                        className={`group relative p-1.5 rounded hover:bg-app-surface/60 transition-premium ${webSearchEnabled ? 'text-[#faf9f5]' : 'text-app-textMuted hover:text-app-textSecondary'}`} 
+                    >
+                        <i className="ph-light ph-globe text-md"></i>
+                        <span className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-[#252320] border border-app-border/40 text-app-textSecondary text-[11px] font-medium px-2 py-1 rounded shadow-lg pointer-events-none whitespace-nowrap z-50">
+                            Web Search
+                            <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-[#252320] border-r border-b border-app-border/40 rotate-45"></div>
+                        </span>
                     </button>
                 </div>
                 
@@ -1685,7 +1756,7 @@ return (
               <h2 className="text-xs font-semibold text-app-textSecondary px-2 py-2 mb-1">Customize</h2>
               
               <button className="flex items-center gap-2.5 w-full p-2 rounded-lg bg-[var(--color-app-surfaceHover)] text-app-textPrimary transition-premium text-left">
-                <span className="material-symbols-outlined text-[18px] text-app-textPrimary shrink-0">cable</span>
+                <span className="material-symbols-outlined text-[18px] text-[#cc785c] shrink-0">cable</span>
                 <span className="text-sm font-medium">Connectors</span>
               </button>
             </div>
@@ -1730,7 +1801,10 @@ return (
                       ) : (
                         <button 
                           onClick={async () => {
-                            await connectMcp(selectedConnectorUrl);
+                            const res = await connectMcp(selectedConnectorUrl);
+                            if (res.success) {
+                                saveMcpConnectionState(selectedConnectorUrl, true);
+                            }
                             setMcpReloadState(prev => prev + 1);
                           }}
                           className="px-4 py-1.5 rounded-lg border border-app-border/50 text-app-textPrimary text-sm font-medium bg-app-surface hover:bg-app-surface/80 transition-colors"
@@ -1756,7 +1830,10 @@ return (
                             <button 
                               onClick={async () => {
                                 setShowConnectorMenu(false);
-                                await connectMcp(selectedConnectorUrl);
+                                const res = await connectMcp(selectedConnectorUrl);
+                                if (res.success) {
+                                    saveMcpConnectionState(selectedConnectorUrl, true);
+                                }
                                 setMcpReloadState(prev => prev + 1);
                               }} 
                               className="flex items-center gap-2 w-full px-3 py-2 text-sm text-app-textPrimary hover:bg-app-surface/50 text-left transition-colors"
@@ -2034,7 +2111,10 @@ return (
                                               transition={{ duration: 0.15 }}
                                               onClick={async (e) => {
                                                 e.stopPropagation();
-                                                await connectMcp(url);
+                                                const res = await connectMcp(url);
+                                                if (res.success) {
+                                                    saveMcpConnectionState(url, true);
+                                                }
                                                 setMcpReloadState(prev => prev + 1);
                                               }}
                                               className="absolute left-0 px-3 py-1 bg-[#161615] hover:bg-[#424240] border border-app-border/30 rounded-lg text-[12px] font-medium text-white transition-colors whitespace-nowrap"
