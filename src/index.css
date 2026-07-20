@@ -17,57 +17,39 @@
   --color-app-accent: var(--theme-app-accent);
   --color-app-userBubble: var(--theme-app-userBubble);
   --color-app-codeBg: var(--theme-app-codeBg);
-  --color-app-modalBg: var(--theme-app-modalBg);
-
   --text-xxs: 0.6rem;
 }
 
-:root {
-  /* Default to dark if no class */
-  --theme-app-main: #181715;
-  --theme-app-surface: #1f1e1b;
-  --theme-app-surfaceHover: #252320;
-  --theme-app-border: #252320;
-  --theme-app-borderLight: #363430;
-  --theme-app-textPrimary: #faf9f5;
-  --theme-app-textSecondary: #a09d96;
-  --theme-app-textMuted: #6c6a64;
-  --theme-app-accent: #cc785c;
-  --theme-app-userBubble: #1f1e1b;
-  --theme-app-codeBg: #141413;
-  --theme-app-modalBg: #181715;
-}
-
-:root.light {
-  /* Light mode colors */
-  --theme-app-main: #faf9f5;
-  --theme-app-surface: #efe9de;
-  --theme-app-surfaceHover: #e8e0d2;
-  --theme-app-border: #e6dfd8;
-  --theme-app-borderLight: #ebe6df;
-  --theme-app-textPrimary: #141413;
-  --theme-app-textSecondary: #3d3d3a;
-  --theme-app-textMuted: #6c6a64;
-  --theme-app-accent: #cc785c;
-  --theme-app-userBubble: #f5f0e8;
-  --theme-app-codeBg: #f5f0e8;
-  --theme-app-modalBg: #faf9f5;
+:root, :root.light {
+  /* Mistral Light Mode */
+  --theme-app-main: #ffffff;
+  --theme-app-surface: #fafafa;
+  --theme-app-surfaceHover: #fffaeb;
+  --theme-app-border: #ededed;
+  --theme-app-borderLight: #e5e5e5;
+  --theme-app-textPrimary: #1f1f1f;
+  --theme-app-textSecondary: #4a4a4a;
+  --theme-app-textMuted: #8a8a8a;
+  --theme-app-accent: #fa520f;
+  --theme-app-userBubble: #fff8e0;
+  --theme-app-codeBg: #1c1c1e;
+  --theme-app-modalBg: #ffffff;
 }
 
 :root.dark {
-  /* Dark mode colors */
-  --theme-app-main: #181715;
-  --theme-app-surface: #1f1e1b;
-  --theme-app-surfaceHover: #252320;
-  --theme-app-border: #252320;
-  --theme-app-borderLight: #363430;
-  --theme-app-textPrimary: #faf9f5;
-  --theme-app-textSecondary: #a09d96;
-  --theme-app-textMuted: #6c6a64;
-  --theme-app-accent: #cc785c;
-  --theme-app-userBubble: #1f1e1b;
-  --theme-app-codeBg: #141413;
-  --theme-app-modalBg: #181715;
+  /* Mistral Dark Mode (Le Chat style) */
+  --theme-app-main: #1A191E; /* Deep ink background */
+  --theme-app-surface: #1a1a1a; /* Elevated surface */
+  --theme-app-surfaceHover: #262626; /* Hover states */
+  --theme-app-border: #333333;
+  --theme-app-borderLight: #222222;
+  --theme-app-textPrimary: #f5f5f5; /* Off-white text */
+  --theme-app-textSecondary: #a3a3a3;
+  --theme-app-textMuted: #737373;
+  --theme-app-accent: #fa520f; /* Signature Mistral Orange */
+  --theme-app-userBubble: #212121;
+  --theme-app-codeBg: #1c1c1e;
+  --theme-app-modalBg: #141414;
 }
 
 body {
@@ -200,3 +182,4 @@ body {
   background-clip: text;
   animation: shimmer 3s infinite linear;
 }
+

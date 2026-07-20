@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -9,7 +9,8 @@ import { Octokit } from '@octokit/rest';
 import { getTools, executeTool, isRiskyTool, getSystemPrompt } from '../utils/githubTools';
 import { connectMcp, getMcpTools, executeMcpTool, getMcpToolsForUrl } from '../utils/mcpClient';
 import { db } from '../utils/firebase';
-import { collection, doc, setDoc, getDocs, deleteDoc, query, orderBy, limit } from 'firebase/firestore';
+import { collection, doc, setDoc, getDocs, deleteDoc, query, orderBy, limit, updateDoc } from 'firebase/firestore';
+import Canvas from './Canvas';
 
 interface AgentPanelProps {
   owner?: string;
@@ -17,6 +18,59 @@ interface AgentPanelProps {
   branch?: string;
   octokit?: Octokit;
 }
+const VERBS = [
+  "Build",
+  "Craft",
+  "Write",
+  "Solve",
+  "Draft"
+];
+
+const AnimatedPlaceholder = () => {
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setIndex((prev) => (prev + 1) % VERBS.length);
+    }, 4000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="absolute inset-0 pointer-events-none flex items-center text-[16px] md:text-sm text-app-textMuted font-sans overflow-hidden">
+      <div className="relative flex">
+        {/* Use a fixed invisible word so the width never changes */}
+        <span className="opacity-0 whitespace-pre">Write</span>
+        <div className="absolute inset-0 flex">
+          <AnimatePresence>
+            <motion.div
+              key={index}
+              className="absolute flex"
+              initial="initial"
+              animate="enter"
+              exit="exit"
+            >
+              {VERBS[index].split('').map((char, i) => (
+                <motion.span
+                  key={i}
+                  variants={{
+                    initial: { y: 20, opacity: 0 },
+                    enter: { y: 0, opacity: 1, transition: { duration: 0.4, delay: i * 0.03 + Math.random() * 0.1, ease: 'easeOut' } },
+                    exit: { y: -20, opacity: 0, transition: { duration: 0.3, delay: i * 0.02 + Math.random() * 0.1, ease: 'easeIn' } }
+                  }}
+                  style={{ display: 'inline-block', whiteSpace: 'pre' }}
+                >
+                  {char}
+                </motion.span>
+              ))}
+            </motion.div>
+          </AnimatePresence>
+        </div>
+      </div>
+      <span className="whitespace-pre"> Anything...</span>
+    </div>
+  );
+};
 
 interface Message {
   id: string;
@@ -36,7 +90,43 @@ export interface ChatSession {
 
 import { getConnectedMcpUrls, disconnectMcp } from '../utils/mcpClient';
 
-const MessageItem = React.memo(({ msg, viewMode, messages, executePendingTools, handleDeny, ToolGroupViewComponent }: any) => {
+const ThinkBlock = ({ content, isActive }: { content: string, isActive?: boolean }) => {
+  const [expanded, setExpanded] = useState(isActive ?? false);
+
+  useEffect(() => {
+    setExpanded(isActive ?? false);
+  }, [isActive]);
+
+  return (
+    <div className="my-2">
+      <div 
+        className="text-[13px] font-sans font-medium text-app-textMuted hover:text-app-textSecondary cursor-pointer flex items-center gap-2 select-none w-fit transition-colors"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <i className={`ph-fill ph-brain transition-transform duration-200 ${expanded ? 'text-app-textSecondary' : 'text-app-textMuted'} text-[14px] ${isActive ? 'animate-pulse' : ''}`}></i>
+        <span className={isActive ? 'animate-shimmer font-semibold' : ''}>Thought process</span>
+      </div>
+      <AnimatePresence>
+        {expanded && (
+          <motion.div 
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.3, ease: 'easeInOut' }}
+            className="overflow-hidden"
+          >
+            <div className="mt-2 ml-[5px] pl-4 border-l-2 border-app-border/40 text-[14px] font-sans text-app-textMuted whitespace-pre-wrap leading-relaxed py-0.5">
+              {content.trim()}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
+const MessageItem = React.memo(({ msg, viewMode, messages, executePendingTools, handleDeny, ToolGroupViewComponent, running, onOpenCanvas }: any) => {
+
   if (msg.role === 'system') {
      return (
        <div className="text-center text-xs text-app-textMuted/70 my-2">
@@ -47,30 +137,40 @@ const MessageItem = React.memo(({ msg, viewMode, messages, executePendingTools, 
   if (msg.role === 'tool') return null;
   
   if (msg.role === 'user') {
-     return (
-       <div className="flex justify-end">
-          <div className="bg-app-userBubble/60 border border-app-border/30 px-4 py-3 rounded-xl max-w-[85%] text-sm leading-relaxed text-app-textPrimary/95 whitespace-pre-wrap text-[16px]" style={{ fontFamily: '"Google Sans", "Noto Sans", sans-serif' }}>
-              {msg.content}
-          </div>
-       </div>
-     );
-  }
+      return (
+        <div className="flex justify-end">
+           <div className="bg-app-userBubble/60 border border-app-border/30 px-4 py-3 rounded-xl max-w-[85%] text-sm leading-relaxed text-app-textPrimary/95 whitespace-pre-wrap break-words break-all text-[16px] font-sans">
+               {msg.content}
+           </div>
+        </div>
+      );
+   }
 
-  if ((!msg.content || msg.content.trim() === '') && (!msg.toolCalls || msg.toolCalls.length === 0)) {
-     return null;
-  }
+   if ((!msg.content || msg.content.trim() === '') && (!msg.toolCalls || msg.toolCalls.length === 0)) {
+      return null;
+   }
 
-  return (
-    <div className="text-sm leading-relaxed space-y-5 group">
-       <div className="space-y-4">
-         {msg.content && (
-           viewMode === 'raw' ? (
-              <pre className="whitespace-pre-wrap font-mono text-[13px] text-app-textSecondary">
-                {msg.content}
-              </pre>
-           ) : (
-              <div className="markdown-body max-w-none text-[16px]" style={{ fontFamily: '"Noto Serif", serif' }}>
-                <Markdown
+   let processedContent = msg.content || '';
+   const thinkBlocks: string[] = [];
+   processedContent = processedContent.replace(/<think>([\s\S]*?)(?:<\/think>|$)/g, (match, p1) => {
+     thinkBlocks.push(p1);
+     return '';
+   });
+   const mergedThinkBlock = thinkBlocks.length > 0 ? thinkBlocks.join('') : null;
+   const isThinkingActive = running && msg.id === messages[messages.length - 1]?.id && !processedContent.trim();
+
+   return (
+     <div className="text-sm leading-relaxed space-y-5 group">
+        <div className="space-y-4">
+          {mergedThinkBlock && <ThinkBlock content={mergedThinkBlock} isActive={isThinkingActive} />}
+          {processedContent.trim() && (
+            viewMode === 'raw' ? (
+               <pre className="whitespace-pre-wrap break-words break-all font-mono text-[13px] text-app-textSecondary">
+                 {processedContent}
+               </pre>
+            ) : (
+               <div className="markdown-body max-w-none text-[16px] font-sans break-words break-all">
+                 <Markdown
                   remarkPlugins={[remarkGfm]}
                   components={{
                     table({ children, ...props }: any) {
@@ -102,21 +202,7 @@ const MessageItem = React.memo(({ msg, viewMode, messages, executePendingTools, 
                       const content = String(children).replace(/\n$/, '');
 
                       return !inline && match ? (
-                        <div className="my-4 rounded-xl overflow-hidden border border-[var(--color-app-borderLight)] shadow-sm bg-[#252523]">
-                          <div className="px-4 pt-3 pb-1 bg-transparent flex items-center justify-between select-none">
-                            <span className="text-xs font-mono text-app-textMuted lowercase font-medium">{match[1]}</span>
-                          </div>
-                          <SyntaxHighlighter
-                            style={tokyoNight as any}
-                            language={match[1]}
-                            PreTag="div"
-                            className="text-sm font-mono custom-scrollbar !m-0 !bg-transparent"
-                            customStyle={{ backgroundColor: 'transparent', padding: '1rem', margin: 0 }}
-                            {...props}
-                          >
-                            {content}
-                          </SyntaxHighlighter>
-                        </div>
+                        <CodeBlock match={match} content={content} props={props} onOpenCanvas={onOpenCanvas} />
                       ) : (
                         <code className="bg-[var(--color-app-surfaceHover)] text-[var(--color-app-accent)] px-1.5 py-0.5 rounded-md font-mono text-sm border border-[var(--color-app-borderLight)]" {...props}>
                           {children}
@@ -125,7 +211,7 @@ const MessageItem = React.memo(({ msg, viewMode, messages, executePendingTools, 
                     }
                   }}
                 >
-                  {msg.content}
+                  {processedContent}
                 </Markdown>
               </div>
            )
@@ -149,6 +235,84 @@ const MessageItem = React.memo(({ msg, viewMode, messages, executePendingTools, 
           (prevProps.messages.some((m:any) => m.role === 'assistant' && prevProps.messages.indexOf(m) > prevProps.messages.indexOf(prevProps.msg)) === 
            nextProps.messages.some((m:any) => m.role === 'assistant' && nextProps.messages.indexOf(m) > nextProps.messages.indexOf(nextProps.msg)));
 });
+
+const CodeBlock = ({ match, content, props, onOpenCanvas }: { match: any, content: string, props: any, onOpenCanvas?: (content: string, lang: string) => void }) => {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = async () => {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(content);
+      } else {
+        const textArea = document.createElement("textarea");
+        textArea.value = content;
+        // Avoid scrolling to bottom
+        textArea.style.top = "0";
+        textArea.style.left = "0";
+        textArea.style.position = "fixed";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textArea);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy', err);
+    }
+  };
+
+  return (
+    <div className="my-4 rounded-lg overflow-hidden shadow-sm bg-[#1c1c1e]">
+      <div className="px-4 py-2 bg-[#1c1c1e] border-b border-white/10 flex items-center justify-between select-none">
+        <span className="text-[13px] font-sans text-[#a8a8a8]">{match[1]}</span>
+        <div className="flex items-center gap-2">
+          {/* {onOpenCanvas && (
+            <button
+              onClick={() => onOpenCanvas(content, match[1])}
+              className="text-[#a8a8a8] hover:text-white transition-colors flex items-center gap-1.5 text-[12px] font-sans bg-transparent border-none cursor-pointer p-1 rounded"
+              title="Open in Canvas"
+            >
+              <i className="ph-bold ph-arrows-out"></i>
+              <span>Canvas</span>
+            </button>
+          )} */}
+          <button 
+            onClick={handleCopy}
+            className="text-[#a8a8a8] hover:text-white transition-colors flex items-center gap-1.5 text-[12px] font-sans bg-transparent border-none cursor-pointer p-1 rounded"
+            title="Copy code"
+          >
+            {copied ? (
+              <>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <span>Copied</span>
+              </>
+            ) : (
+              <>
+                <svg xmlns="http://www.w3.org/2000/svg" width="24px" height="24px" viewBox="0 0 24 24" className="in-aria-busy:text-transparent size-4">
+                  <path d="M7 17L7 3L21 3L21 17L7 17Z" stroke="currentColor" strokeWidth="2" strokeMiterlimit="10" strokeLinecap="square" fill="none"/>
+                  <path d="M3 7L3 21L17 21" stroke="currentColor" strokeWidth="2" strokeMiterlimit="10" strokeLinecap="square" data-color="color-2" fill="none"/>
+                </svg>
+                <span>Copy</span>
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+      <SyntaxHighlighter
+        style={tokyoNight as any}
+        language={match[1]}
+        PreTag="div"
+        className="text-sm font-mono custom-scrollbar !m-0 !bg-transparent"
+        customStyle={{ backgroundColor: 'transparent', padding: '1rem', margin: 0 }}
+        {...props}
+      >
+        {content}
+      </SyntaxHighlighter>
+    </div>
+  );
+};
+
 export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelProps) {
   const [mcpReloadState, setMcpReloadState] = useState(0);
   useEffect(() => {
@@ -182,10 +346,13 @@ export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelP
 
   const [model, setModel] = useState<string>(() => localStorage.getItem('selected_model') || 'deepseek-ai/deepseek-v4-flash');
   const [provider, setProvider] = useState<string>(() => localStorage.getItem('selected_provider') || 'opencode');
+  const [reasoningEffort, setReasoningEffort] = useState<string>(() => localStorage.getItem('reasoning_effort') || 'high');
   const [providerDropdownOpen, setProviderDropdownOpen] = useState(false);
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
-  const [showCustomizeModal, setShowCustomizeModal] = useState(false);
+  const [showContextMenu, setShowContextMenu] = useState(false);
   const [showAddConnectorModal, setShowAddConnectorModal] = useState(false);
+  const [showSystemInstructionsModal, setShowSystemInstructionsModal] = useState(false);
+  const [customInstructions, setCustomInstructions] = useState<string>(() => localStorage.getItem('custom_instructions') || '');
   const [activeConnectorTab, setActiveConnectorTab] = useState('All');
   const [showAdvancedConnectorSettings, setShowAdvancedConnectorSettings] = useState(false);
   const [selectedConnectorUrl, setSelectedConnectorUrl] = useState<string | null>(null);
@@ -193,6 +360,7 @@ export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelP
   const [showGlobalPermissionDropdown, setShowGlobalPermissionDropdown] = useState(false);
   const [showConnectorMenu, setShowConnectorMenu] = useState(false);
   const [models, setModels] = useState<any[]>([]);
+  const [activeCanvas, setActiveCanvas] = useState<{content: string, language: string} | null>(null);
 
   useEffect(() => {
     fetch(`/api/models?provider=${provider}`)
@@ -214,19 +382,70 @@ export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelP
       .catch(console.error);
   }, [provider]);
 
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: 'welcome',
-      role: 'system',
-      content: `Workspace ready.`
+  const [messages, setMessages] = useState<Message[]>(() => {
+    const saved = localStorage.getItem('chat_sessions');
+    const params = new URLSearchParams(window.location.search);
+    const urlSession = params.get('session');
+
+    if (saved) {
+      try {
+        const sessions: ChatSession[] = JSON.parse(saved);
+        
+        // Priority 1: URL session
+        if (urlSession) {
+          const session = sessions.find(s => s.id === urlSession);
+          if (session) return session.messages;
+          return [];
+        }
+
+        // Priority 2: Active Job Session
+        const activeJobSession = localStorage.getItem('active_job_session');
+        if (activeJobSession) {
+          const session = sessions.find(s => s.id === activeJobSession);
+          if (session) return session.messages;
+        }
+
+        // Priority 3: Most recent
+        if (sessions.length > 0) return sessions[0].messages;
+      } catch (e) {}
     }
-  ]);
-  const [sessionId, setSessionId] = useState<string>(() => Date.now().toString());
-  const [sessions, setSessions] = useState<ChatSession[]>([]);
+    return [];
+  });
+
+  const [sessionId, setSessionId] = useState<string>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlSession = params.get('session');
+    if (urlSession) return urlSession;
+
+    const saved = localStorage.getItem('chat_sessions');
+    if (saved) {
+      try {
+        const sessions: ChatSession[] = JSON.parse(saved);
+        const activeJobSession = localStorage.getItem('active_job_session');
+        if (activeJobSession) return activeJobSession;
+        if (sessions.length > 0) return sessions[0].id;
+      } catch (e) {}
+    }
+    return Date.now().toString();
+  });
+
+  // Keep URL in sync with sessionId
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('session', sessionId);
+    window.history.replaceState({}, '', url.toString());
+  }, [sessionId]);
+  
+  const [sessions, setSessions] = useState<ChatSession[]>(() => {
+    const saved = localStorage.getItem('chat_sessions');
+    return saved ? JSON.parse(saved) : [];
+  });
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
 
   useEffect(() => {
     async function loadSessions() {
+      const activeJobSession = localStorage.getItem('active_job_session');
+      // 1. Fetch from Firebase in background to sync cross-device
       try {
         const q = query(collection(db, 'chat_sessions'), orderBy('updatedAt', 'desc'), limit(50));
         const snapshot = await getDocs(q);
@@ -234,20 +453,91 @@ export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelP
         snapshot.forEach(doc => {
           loaded.push(doc.data() as ChatSession);
         });
-        setSessions(loaded);
-        setSessionsLoaded(true);
+        
+        setSessions(prevLocal => {
+          const merged = [...prevLocal];
+          loaded.forEach(fbSession => {
+            const existingIdx = merged.findIndex(s => s.id === fbSession.id);
+            if (existingIdx >= 0) {
+              if (fbSession.updatedAt > merged[existingIdx].updatedAt) {
+                merged[existingIdx] = fbSession;
+              }
+            } else {
+              merged.push(fbSession);
+            }
+          });
+          merged.sort((a, b) => b.updatedAt - a.updatedAt);
+          const resultingSessions = merged.slice(0, 50);
+          localStorage.setItem('chat_sessions', JSON.stringify(resultingSessions));
+          
+          // Re-sync messages for the current session if it was updated from Firebase
+          if (activeJobSession) {
+             const updatedActive = resultingSessions.find(s => s.id === activeJobSession);
+             if (updatedActive && !localStorage.getItem('active_job_id')) { // Don't override if a job is actively appending
+                setMessages(updatedActive.messages);
+             }
+          }
+
+          return resultingSessions;
+        });
       } catch (err) {
         console.error("Failed to load sessions from Firebase", err);
-        const saved = localStorage.getItem('chat_sessions');
-        if (saved) setSessions(JSON.parse(saved));
+      } finally {
         setSessionsLoaded(true);
       }
     }
     loadSessions();
   }, []);
+
+  // Reconnect to an active background job if browser was closed mid-response
+  useEffect(() => {
+    const activeJobId = localStorage.getItem('active_job_id');
+    const activeJobSession = localStorage.getItem('active_job_session');
+    const activeJobMsgId = localStorage.getItem('active_job_msg_id');
+    
+    if (activeJobId && activeJobMsgId) {
+      // Check if the job is still running on the server
+      fetch(`/api/agent/status/${activeJobId}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.status === 'running' || data.status === 'done') {
+            // Reconnect! Add a placeholder message and start consuming
+            setRunning(true);
+            const newMsg: Message = {
+              id: activeJobMsgId,
+              role: 'assistant',
+              content: '',
+            };
+            setMessages(prev => {
+              // Only add if not already present
+              if (prev.some(m => m.id === activeJobMsgId)) return prev;
+              return [...prev, newMsg];
+            });
+            consumeJobStream(activeJobId, activeJobMsgId, []);
+          } else {
+            // Job errored or gone, clean up
+            localStorage.removeItem('active_job_id');
+            localStorage.removeItem('active_job_session');
+            localStorage.removeItem('active_job_msg_id');
+          }
+        })
+        .catch(() => {
+          localStorage.removeItem('active_job_id');
+          localStorage.removeItem('active_job_session');
+          localStorage.removeItem('active_job_msg_id');
+        });
+    }
+  }, []);
+
   const [showSessionsPanel, setShowSessionsPanel] = useState(false);
   const [input, setInput] = useState('');
   const [running, setRunning] = useState(false);
+  const [rateLimitCountdown, setRateLimitCountdown] = useState<number | null>(null);
+  const [activeChatMenu, setActiveChatMenu] = useState<string | null>(null);
+  const [renamingChatId, setRenamingChatId] = useState<string | null>(null);
+  const [renameInput, setRenameInput] = useState('');
+  const [showPlusMenu, setShowPlusMenu] = useState(false);
+  const [activeSubmenu, setActiveSubmenu] = useState<string | null>(null);
   const [currentBranch, setCurrentBranch] = useState(branch);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -326,7 +616,7 @@ export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelP
 
   const createNewSession = () => {
     setSessionId(Date.now().toString());
-    setMessages([{ id: 'welcome', role: 'system', content: `Workspace ready.` }]);
+    setMessages([]);
     setShowSessionsPanel(false);
   };
 
@@ -350,6 +640,23 @@ export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelP
     if (id === sessionId) {
       createNewSession();
     }
+  };
+
+  const renameSession = (id: string, newName: string) => {
+    if (!newName.trim()) {
+      setRenamingChatId(null);
+      setActiveChatMenu(null);
+      return;
+    }
+    const newSessions = sessions.map(s => s.id === id ? { ...s, name: newName } : s);
+    setSessions(newSessions);
+    localStorage.setItem('chat_sessions', JSON.stringify(newSessions));
+    updateDoc(doc(db, "chat_sessions", id), { name: newName }).catch(err => {
+      console.error("Failed to rename session in Firebase", err);
+    });
+    setRenamingChatId(null);
+    setRenameInput('');
+    setActiveChatMenu(null);
   };
 
   useEffect(() => {
@@ -537,12 +844,12 @@ export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelP
     scrollToBottom();
   }, [messages]);
 
-  const callAgentAPI = async (currentMsgs: Message[]) => {
+  const callAgentAPI = async (currentMsgs: Message[], notifyEmail = false) => {
     setRunning(true);
     
     // Format for NVIDIA API
     const apiMessages = [
-      { role: 'system', content: getSystemPrompt(owner, repo, currentBranch, agentMode) },
+      { role: 'system', content: getSystemPrompt(owner, repo, currentBranch, agentMode) + (customInstructions ? `\n\nUser Custom Instructions:\n${customInstructions}` : '') },
       ...currentMsgs.filter(m => m.role !== 'system').map(m => {
         const payload: any = {
           role: m.role,
@@ -569,22 +876,39 @@ export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelP
     ];
 
     try {
-      const response = await fetch('/api/agent/run', {
+      // Start a background job on the server
+      const startRes = await fetch('/api/agent/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          task: "", // Task is already in messages
           model,
           provider,
+          reasoning_effort: reasoningEffort,
           messages: apiMessages,
           tools: [...getTools(agentMode, !!(owner && repo), webSearchEnabled), ...getActiveMcpTools()],
-          stream: true
+          notifyEmail,
         })
       });
 
-      if (!response.ok) throw new Error(`API error: ${response.statusText}`);
+      if (!startRes.ok) {
+        let errorDetails = '';
+        try {
+          const errData = await startRes.json();
+          errorDetails = errData.error?.message || errData.error || errData.message || JSON.stringify(errData);
+        } catch {
+          errorDetails = await startRes.text();
+        }
+        throw new Error(errorDetails || startRes.statusText);
+      }
+
+      const { jobId } = await startRes.json();
       
+      // Save jobId so we can reconnect if browser closes
+      localStorage.setItem('active_job_id', jobId);
+      localStorage.setItem('active_job_session', sessionId);
+
       const newMsgId = Date.now().toString() + Math.random().toString();
+      localStorage.setItem('active_job_msg_id', newMsgId);
       const newMsg: Message = {
         id: newMsgId,
         role: 'assistant',
@@ -592,8 +916,32 @@ export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelP
       };
       
       setMessages(prev => [...prev, newMsg]);
+
+      // Connect to the SSE stream
+      await consumeJobStream(jobId, newMsgId, currentMsgs);
+
+    } catch (err: any) {
+      setMessages(prev => [...prev, {
+        id: Date.now().toString() + Math.random().toString(),
+        role: 'system',
+        content: err.message
+      }]);
+      setRunning(false);
+      localStorage.removeItem('active_job_id');
+      localStorage.removeItem('active_job_session');
+      localStorage.removeItem('active_job_msg_id');
+    }
+  };
+
+  const consumeJobStream = async (jobId: string, newMsgId: string, currentMsgs: Message[]) => {
+    try {
+      const response = await fetch(`/api/agent/stream/${jobId}`);
       
+      if (!response.ok) {
+        throw new Error('Failed to connect to job stream');
+      }
       if (!response.body) throw new Error("No response body");
+      
       const reader = response.body.getReader();
       const decoder = new TextDecoder("utf-8");
       
@@ -615,14 +963,61 @@ export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelP
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.slice(6));
+
+              // Handle rate limit countdown
+              if (data.rateLimit) {
+                if (data.countdown !== undefined) {
+                  setRateLimitCountdown(data.countdown);
+                  if (data.countdown === 0) {
+                    setRateLimitCountdown(null);
+                  }
+                } else if (data.waitSeconds) {
+                  setRateLimitCountdown(data.waitSeconds);
+                  setMessages(prev => prev.map(m => m.id === newMsgId ? { ...m, content: `⏳ Rate limited by NVIDIA. Retrying in ${data.waitSeconds}s... (attempt ${data.attempt}/${data.maxRetries})` } : m));
+                }
+                continue;
+              }
+
+              // Check for server-side error
+              if (data.error) {
+                throw new Error(data.error);
+              }
+              
               const delta = data.choices[0]?.delta;
               
               if (delta) {
-                if (delta.content) {
-                  fullContent += delta.content;
-                  setMessages(prev => prev.map(m => m.id === newMsgId ? { ...m, content: fullContent } : m));
+                let textToAppend = '';
+                
+                if (typeof delta.reasoning === 'string' && delta.reasoning) {
+                  // If reasoning is a separate string field
+                  textToAppend += `<think>${delta.reasoning}</think>\n\n`;
                 }
                 
+                if (typeof delta.content === 'string') {
+                  textToAppend += delta.content;
+                } else if (Array.isArray(delta.content)) {
+                  for (const item of delta.content) {
+                    if (item.text) textToAppend += item.text;
+                    if (item.type === 'reasoning' && item.reasoning) textToAppend += `<think>${item.reasoning}</think>\n\n`;
+                    if (item.type === 'thinking') {
+                      const tc = typeof item.thinking === 'string' ? item.thinking : (Array.isArray(item.thinking) ? item.thinking.map((t: any) => t.text).join('') : '');
+                      if (tc) textToAppend += `<think>${tc}</think>\n\n`;
+                    }
+                  }
+                } else if (typeof delta.content === 'object' && delta.content !== null) {
+                  const contentObj = delta.content as any;
+                  if (contentObj.text) textToAppend += contentObj.text;
+                  if (contentObj.reasoning) textToAppend += `<think>${contentObj.reasoning}</think>\n\n`;
+                  if (contentObj.type === 'thinking' || contentObj.thinking) {
+                    const tc = typeof contentObj.thinking === 'string' ? contentObj.thinking : (Array.isArray(contentObj.thinking) ? contentObj.thinking.map((t: any) => t.text).join('') : '');
+                    if (tc) textToAppend += `<think>${tc}</think>\n\n`;
+                  }
+                }
+
+                if (textToAppend) {
+                  fullContent += textToAppend;
+                  setMessages(prev => prev.map(m => m.id === newMsgId ? { ...m, content: fullContent } : m));
+                }
                 if (delta.tool_calls) {
                   if (!toolCalls) toolCalls = [];
                   for (const tc of delta.tool_calls) {
@@ -641,8 +1036,8 @@ export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelP
                   }
                 }
               }
-            } catch (e) {
-              // Ignore parse errors from partial JSON
+            } catch (e: any) {
+              if (e.message && !e.message.includes('JSON')) throw e;
             }
           }
         }
@@ -672,7 +1067,6 @@ export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelP
         return computedNextMsgs;
       });
       
-      // Compute synchronously just in case React batches
       const syncNextMsgs = [...currentMsgs, {
         id: newMsgId,
         role: 'assistant' as const,
@@ -683,6 +1077,11 @@ export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelP
 
       const updatedMsg = syncNextMsgs.find(m => m.id === newMsgId);
       
+      // Clean up job tracking
+      localStorage.removeItem('active_job_id');
+      localStorage.removeItem('active_job_session');
+      localStorage.removeItem('active_job_msg_id');
+
       if (updatedMsg?.toolCalls && !updatedMsg.isApprovalPending) {
          setTimeout(() => executePendingTools(updatedMsg, syncNextMsgs), 0);
       } else if (!updatedMsg?.toolCalls) {
@@ -693,9 +1092,12 @@ export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelP
       setMessages(prev => [...prev, {
         id: Date.now().toString() + Math.random().toString(),
         role: 'system',
-        content: `Error: ${err.message}`
+        content: err.message
       }]);
       setRunning(false);
+      localStorage.removeItem('active_job_id');
+      localStorage.removeItem('active_job_session');
+      localStorage.removeItem('active_job_msg_id');
     }
   };
 
@@ -703,19 +1105,35 @@ export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelP
     if (e) e.preventDefault();
     if (!input.trim() || running) return;
 
-    const task = input.trim();
+    let task = input.trim();
+    let notifyEmail = false;
+
+    if (task.startsWith('/task ')) {
+      notifyEmail = true;
+      task = task.slice(6).trim();
+    } else if (task === '/task') {
+      notifyEmail = true;
+      task = "Please complete the pending task."; // default prompt if they just type /task
+    }
+
     setInput('');
+    const textarea = document.querySelector('textarea');
+    if (textarea) textarea.style.height = 'auto';
     scrollToBottom(true);
     setShowMentions(false);
     
     const newMsgs = [...messages, { id: Date.now().toString() + Math.random().toString(), role: 'user' as const, content: task }];
     setMessages(newMsgs);
-    callAgentAPI(newMsgs);
+    callAgentAPI(newMsgs, notifyEmail);
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
+    
     setInput(val);
+    
+    e.target.style.height = 'auto';
+    e.target.style.height = Math.min(e.target.scrollHeight, 128) + 'px'; // Max 32rem / 128px
 
     const cursorPosition = e.target.selectionStart;
     const textBeforeCursor = val.slice(0, cursorPosition);
@@ -730,7 +1148,29 @@ export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelP
     }
   };
 
-  const filteredFiles = files.filter(f => f.toLowerCase().includes(mentionFilter.toLowerCase())).slice(0, 10);
+  const filteredMentionItems = useMemo(() => {
+    const filter = mentionFilter.toLowerCase();
+    const items: { name: string; category: 'file' | 'tool' | 'mcp'; description?: string }[] = [];
+
+    // Files
+    files.filter(f => f.toLowerCase().includes(filter)).slice(0, 5).forEach(f => {
+      items.push({ name: f, category: 'file' });
+    });
+
+    // Built-in tools
+    const builtInTools = getTools(agentMode, !!(owner && repo), webSearchEnabled);
+    builtInTools.filter(t => t.function.name.toLowerCase().includes(filter)).slice(0, 5).forEach(t => {
+      items.push({ name: t.function.name, category: 'tool', description: t.function.description });
+    });
+
+    // MCP tools
+    const mcpTools = getActiveMcpTools();
+    mcpTools.filter((t: any) => t.function.name.toLowerCase().includes(filter)).slice(0, 5).forEach((t: any) => {
+      items.push({ name: t.function.name, category: 'mcp', description: t.function.description });
+    });
+
+    return items.slice(0, 12);
+  }, [mentionFilter, files, agentMode, owner, repo, webSearchEnabled]);
 
   const insertMention = (filename: string) => {
     const textarea = document.querySelector('textarea');
@@ -757,18 +1197,18 @@ export default function AgentPanel({ owner, repo, branch, octokit }: AgentPanelP
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (showMentions && filteredFiles.length > 0) {
+    if (showMentions && filteredMentionItems.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setMentionIndex(prev => (prev + 1) % filteredFiles.length);
+        setMentionIndex(prev => (prev + 1) % filteredMentionItems.length);
         return;
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
-        setMentionIndex(prev => (prev - 1 + filteredFiles.length) % filteredFiles.length);
+        setMentionIndex(prev => (prev - 1 + filteredMentionItems.length) % filteredMentionItems.length);
         return;
       } else if (e.key === 'Enter' || e.key === 'Tab') {
         e.preventDefault();
-        insertMention(filteredFiles[mentionIndex]);
+        insertMention(filteredMentionItems[mentionIndex].name);
         return;
       } else if (e.key === 'Escape') {
         setShowMentions(false);
@@ -1140,50 +1580,109 @@ return (
       initial={false}
       animate={{ width: showSessionsPanel ? (window.innerWidth < 768 ? '80%' : 260) : (window.innerWidth < 768 ? 0 : 56) }}
       transition={{ duration: 0.2, ease: "easeInOut" }}
-      className={`h-full bg-[#1C1C1A] border-r border-[var(--color-app-border)] shrink-0 flex flex-col z-50 absolute md:relative left-0 top-0 overflow-hidden shadow-2xl md:shadow-none ${!showSessionsPanel ? 'max-md:hidden' : ''}`}
+      className={`h-full bg-[#17161B] border-r border-[var(--color-app-border)] shrink-0 flex flex-col z-50 absolute md:relative left-0 top-0 overflow-hidden shadow-2xl md:shadow-none ${!showSessionsPanel ? 'max-md:hidden' : ''}`}
     >
       <div className="flex flex-col h-full min-w-[260px] w-[260px]">
         {/* Toggle Button Area */}
-        <div className="flex items-center justify-between px-2.5 pt-3 pb-2 shrink-0">
-           <span className={`text-2xl font-serif font-semibold text-app-textPrimary pl-1.5 whitespace-nowrap transition-opacity duration-150 ${showSessionsPanel ? 'opacity-100' : 'opacity-0'}`}>
-             Claude
-           </span>
-           <div className={`transition-all duration-200 ${showSessionsPanel ? 'transform translate-x-0' : 'transform -translate-x-[204px]'}`}>
-             <button onClick={() => setShowSessionsPanel(!showSessionsPanel)} className="text-app-textMuted hover:text-app-textPrimary transition-premium p-1.5 rounded-lg hover:bg-app-surface">
-               <span className="material-symbols-outlined text-[22px]">
-                 {showSessionsPanel ? 'left_panel_close' : 'left_panel_open'}
-               </span>
+        <div className="flex items-center pt-3 pb-2 shrink-0">
+           <div className="w-[56px] flex items-center justify-center shrink-0">
+             <button onClick={() => setShowSessionsPanel(!showSessionsPanel)} className="bg-gradient-to-br from-[#FF6A00] to-[#cc3a05] text-white hover:opacity-90 transition-premium p-1.5 rounded-lg flex items-center justify-center shadow-md">
+                <svg viewBox="0 0 397.46 281.64" className="w-[19px] h-[19px]" fill="currentColor">
+                  <path d="M340.814 84.181 C 340.814 99.640,340.848 105.964,340.890 98.234 C 340.932 90.505,340.932 77.857,340.890 70.127 C 340.848 62.398,340.814 68.722,340.814 84.181 M170.339 112.147 C 170.069 112.321,149.330 112.422,113.206 112.425 L 56.497 112.429 56.497 140.494 L 56.497 168.558 106.285 168.691 C 157.316 168.827,261.045 168.838,312.147 168.714 L 340.819 168.644 340.746 140.537 L 340.673 112.429 283.771 112.429 C 246.141 112.429,226.810 112.334,226.695 112.147 C 226.459 111.765,170.929 111.765,170.339 112.147 " />
+                  <path d="M340.814 140.395 C 340.814 155.855,340.848 162.179,340.890 154.449 C 340.932 146.720,340.932 134.071,340.890 126.342 C 340.848 118.612,340.814 124.936,340.814 140.395 M56.566 196.679 L 56.638 224.718 84.605 224.795 C 99.986 224.838,112.857 224.803,113.208 224.719 L 113.845 224.565 113.773 196.675 L 113.701 168.785 85.097 168.713 L 56.494 168.641 56.566 196.679 M169.962 168.832 C 169.555 169.240,169.748 224.485,170.158 224.826 C 170.438 225.058,178.144 225.125,198.759 225.072 L 226.977 225.000 227.049 196.822 L 227.121 168.644 198.636 168.644 C 182.969 168.644,170.066 168.729,169.962 168.832 M283.464 168.997 C 283.389 169.191,283.362 181.808,283.402 197.034 L 283.475 224.718 312.006 224.718 L 340.537 224.718 340.678 196.681 L 340.819 168.644 312.209 168.644 C 289.580 168.644,283.570 168.718,283.464 168.997 " />
+                  <path d="M340.814 27.966 C 340.814 43.425,340.848 49.749,340.890 42.020 C 340.932 34.290,340.932 21.642,340.890 13.912 C 340.848 6.183,340.814 12.507,340.814 27.966 M113.702 55.930 C 113.586 56.118,103.890 56.215,85.012 56.215 L 56.497 56.215 56.497 84.322 L 56.497 112.429 113.112 112.429 C 144.251 112.429,169.929 112.352,170.175 112.258 C 170.630 112.083,170.900 57.271,170.452 56.102 C 170.246 55.566,114.032 55.396,113.702 55.930 M226.869 56.033 C 226.637 56.314,226.570 63.946,226.623 84.353 L 226.695 112.288 283.757 112.359 L 340.819 112.431 340.746 84.323 L 340.673 56.215 312.161 56.215 C 293.458 56.215,283.589 56.118,283.475 55.932 C 283.178 55.452,227.269 55.552,226.869 56.033 " />
+                  <path d="M56.497 28.109 L 56.497 56.217 85.099 56.145 L 113.701 56.073 113.773 28.037 L 113.845 0.000 85.171 0.000 L 56.497 0.000 56.497 28.109 M283.403 28.037 L 283.475 56.073 312.147 56.145 L 340.819 56.217 340.746 28.109 L 340.673 0.000 312.002 -0.000 L 283.331 -0.000 283.403 28.037 M226.407 84.181 C 226.407 99.484,226.441 105.745,226.483 98.093 C 226.525 90.441,226.525 77.920,226.483 70.268 C 226.441 62.617,226.407 68.877,226.407 84.181 " />
+                  <path d="M340.677 196.751 L 340.537 224.718 284.084 224.613 C 238.408 224.529,227.501 224.578,226.951 224.873 L 226.271 225.237 226.271 253.099 C 226.271 274.392,226.351 281.040,226.610 281.299 C 226.872 281.562,246.271 281.638,312.203 281.638 L 397.458 281.638 397.458 253.107 L 397.458 224.576 369.210 224.576 L 340.963 224.576 340.891 196.681 L 340.818 168.785 340.677 196.751 M0.000 253.155 L 0.000 281.639 85.240 281.568 L 170.480 281.497 170.552 253.420 C 170.599 235.209,170.526 225.225,170.345 225.007 C 170.129 224.748,150.516 224.670,85.033 224.670 L 0.000 224.670 0.000 253.155 " />
+                </svg>
              </button>
            </div>
+           <span className={`text-[16px] font-sans font-medium tracking-[-0.5px] leading-none text-app-textPrimary whitespace-nowrap transition-opacity duration-150 ${showSessionsPanel ? 'opacity-100' : 'opacity-0'}`}>
+             Vibe
+           </span>
         </div>
         
         {/* Action Buttons Area */}
-        <div className="px-2.5 pb-3 border-b border-[var(--color-app-borderLight)] shrink-0 flex flex-col gap-1">
+        <div className="mt-[1vh] pb-3 border-b border-[var(--color-app-borderLight)] shrink-0 flex flex-col gap-1">
            <button 
              onClick={createNewSession}
-             className="flex items-center gap-2 w-full p-1.5 rounded-lg hover:bg-app-surface text-app-textPrimary transition-premium overflow-hidden"
+             className="flex items-center w-full rounded-lg hover:bg-app-surface text-app-textPrimary transition-premium overflow-hidden group"
              title="New Chat"
            >
-             <span className="material-symbols-outlined text-[20px] shrink-0 text-[#faf9f5]">edit_square</span>
+             <div className="w-[56px] h-[36px] flex items-center justify-center shrink-0 group-hover:text-white">
+               <div className="w-[28px] h-[28px] bg-[#29282D] rounded-lg flex items-center justify-center">
+                 <svg xmlns="http://www.w3.org/2000/svg" width="16px" height="16px" viewBox="0 0 24 24" className="shrink-0 text-[#faf9f5]" strokeWidth={1.75}><path d="M3 12H21" stroke="currentColor" strokeWidth={2} strokeMiterlimit={10} strokeLinecap="square" data-color="color-2" fill="none"/><path d="M12 3V21" stroke="currentColor" strokeWidth={2} strokeMiterlimit={10} strokeLinecap="square" fill="none"/></svg>
+               </div>
+             </div>
              <span className={`text-[#faf9f5] text-sm font-medium whitespace-nowrap transition-opacity duration-150 ${showSessionsPanel ? 'opacity-100' : 'opacity-0'}`}>
                New chat
              </span>
            </button>
 
-           <button 
-             onClick={() => setShowCustomizeModal(true)}
-             className="flex items-center gap-2 w-full p-1.5 rounded-lg hover:bg-[var(--color-app-surface)] text-app-textPrimary transition-premium overflow-hidden"
-             title="Customize"
-           >
-             <span className="material-symbols-outlined text-[20px] shrink-0 text-[#faf9f5]">home_repair_service</span>
-             <span className={`text-[#faf9f5] text-sm font-medium whitespace-nowrap transition-opacity duration-150 ${showSessionsPanel ? 'opacity-100' : 'opacity-0'}`}>
-               Customize
-             </span>
-           </button>
+           <div className="w-full flex flex-col">
+             <button 
+               onClick={() => setShowContextMenu(!showContextMenu)}
+               className="flex items-center w-full rounded-lg hover:bg-[var(--color-app-surface)] text-app-textPrimary transition-premium overflow-hidden group"
+               title="Context"
+             >
+               <div className="w-[56px] h-[36px] flex items-center justify-center shrink-0 group-hover:text-white">
+                 <svg xmlns="http://www.w3.org/2000/svg" width="24px" height="24px" viewBox="0 0 24 24" className="shrink-0 text-[#faf9f5] size-[18px]">
+                   <path d="M10 3L10 10L3 10L3 3L10 3Z" stroke="currentColor" strokeWidth={2} strokeMiterlimit={10} strokeLinecap="square" data-color="color-2" fill="none"/>
+                   <path d="M21 14L21 21L14 21L14 14L21 14Z" stroke="currentColor" strokeWidth={2} strokeMiterlimit={10} strokeLinecap="square" data-color="color-2" fill="none"/>
+                   <path d="M6.5 21C8.433 21 10 19.433 10 17.5C10 15.567 8.433 14 6.5 14C4.567 14 3 15.567 3 17.5C3 19.433 4.567 21 6.5 21Z" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+                   <path d="M21 6.5L14 6.5" stroke="currentColor" strokeWidth={2} strokeMiterlimit={10} strokeLinecap="square" fill="none"/>
+                   <path d="M17.495 3C17.495 5.34315 17.495 7.65685 17.495 10" stroke="currentColor" strokeWidth={2} strokeMiterlimit={10} strokeLinecap="square" fill="none"/>
+                 </svg>
+               </div>
+               <span className={`text-[#faf9f5] text-sm font-medium whitespace-nowrap transition-opacity duration-150 ${showSessionsPanel ? 'opacity-100' : 'opacity-0'}`}>
+                 Context
+               </span>
+             </button>
+
+             <AnimatePresence>
+               {showContextMenu && (
+                 <motion.div
+                   initial={{ height: 0, opacity: 0 }}
+                   animate={{ height: 'auto', opacity: 1 }}
+                   exit={{ height: 0, opacity: 0 }}
+                   className="overflow-hidden w-full"
+                 >
+                   <div className="relative flex flex-col pl-[28px] pr-2 py-1 mt-1 gap-1">
+                     {/* Vertical connecting line */}
+                     <div className="absolute left-[27px] top-0 bottom-5 w-[2px] bg-[var(--color-app-borderLight)] rounded-full"></div>
+                     
+                     <div className="pl-4 relative">
+                       {/* Horizontal connecting line */}
+                       <div className="absolute left-0 top-[17px] w-3 h-[2px] bg-[var(--color-app-borderLight)] rounded-full"></div>
+                       <button
+                         onClick={() => setShowAddConnectorModal(true)}
+                         className="flex items-center gap-2 w-full px-3 py-1.5 text-sm text-app-textSecondary hover:text-app-textPrimary hover:bg-[var(--color-app-surfaceHover)] rounded-lg text-left transition-colors"
+                       >
+                         Connectors
+                       </button>
+                     </div>
+
+                     <div className="pl-4 relative">
+                       {/* Horizontal connecting line */}
+                       <div className="absolute left-0 top-[17px] w-3 h-[2px] bg-[var(--color-app-borderLight)] rounded-full"></div>
+                       <button
+                         onClick={() => {
+                           setShowContextMenu(false);
+                           setShowSystemInstructionsModal(true);
+                         }}
+                         className="flex items-center gap-2 w-full px-3 py-1.5 text-sm text-app-textSecondary hover:text-app-textPrimary hover:bg-[var(--color-app-surfaceHover)] rounded-lg text-left transition-colors"
+                       >
+                         System Instructions
+                       </button>
+                     </div>
+                   </div>
+                 </motion.div>
+               )}
+             </AnimatePresence>
+           </div>
         </div>
         
         {/* Chat List */}
-        <div className={`p-3 overflow-y-auto custom-scrollbar flex-1 flex flex-col gap-1 transition-opacity duration-150 ${showSessionsPanel ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+        <div className={`p-3 overflow-y-auto custom-scrollbar flex-1 flex flex-col gap-0 transition-opacity duration-150 ${showSessionsPanel ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
           <div className="px-2 pt-2 pb-1 text-xs font-semibold text-[#a09d96] whitespace-nowrap">
             Recents
           </div>
@@ -1194,26 +1693,69 @@ return (
             sessions.map(s => (
               <div 
                 key={s.id} 
-                className={`flex items-center justify-between p-2.5 rounded transition-premium cursor-pointer group ${s.id === sessionId ? 'bg-app-surfaceHover text-app-textPrimary' : 'text-app-textSecondary hover:bg-[var(--color-app-surfaceHover)]'}`}
+                className={`relative flex items-center justify-between px-2.5 py-1.5 rounded-lg transition-premium cursor-pointer group ${s.id === sessionId ? 'text-app-textPrimary bg-transparent' : 'text-app-textSecondary hover:bg-[var(--color-app-surfaceHover)]'}`}
                 onClick={() => loadSession(s.id)}
               >
-                <div className="flex flex-col min-w-0">
-                  <div className="text-sm font-medium truncate pr-2">{s.name}</div>
-                  <div className="text-[10px] text-app-textMuted">{new Date(s.updatedAt).toLocaleDateString()}</div>
+                {renamingChatId === s.id ? (
+                  <input
+                    autoFocus
+                    type="text"
+                    value={renameInput}
+                    onChange={(e) => setRenameInput(e.target.value)}
+                    onBlur={() => renameSession(s.id, renameInput)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') renameSession(s.id, renameInput);
+                      if (e.key === 'Escape') { setRenamingChatId(null); setActiveChatMenu(null); }
+                    }}
+                    className="flex-1 bg-black/20 text-sm text-app-textPrimary px-2 py-1 rounded border border-app-border focus:outline-none focus:border-app-accent mr-2"
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ) : (
+                  <div className="text-sm font-medium truncate flex-1 pr-2">{s.name}</div>
+                )}
+                
+                <div className="relative flex-shrink-0">
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveChatMenu(activeChatMenu === s.id ? null : s.id);
+                    }}
+                    className={`text-app-textMuted hover:text-white p-1 rounded flex items-center justify-center ${activeChatMenu === s.id ? 'text-white' : ''}`}
+                    title="Options"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20px" height="20px" viewBox="0 0 24 24" className="size-4"><path d="M12 12H12.01" stroke="currentColor" strokeWidth="3" strokeLinecap="square" data-color="color-2" fill="none"/><path d="M12 5H12.01" stroke="currentColor" strokeWidth="3" strokeLinecap="square" fill="none"/><path d="M12 19H12.01" stroke="currentColor" strokeWidth="3" strokeLinecap="square" fill="none"/></svg>
+                  </button>
+                  
+                  {activeChatMenu === s.id && (
+                    <div className="absolute right-0 top-full mt-1 w-32 bg-[#17161B] border border-[var(--color-app-borderLight)] rounded-lg shadow-xl z-50 overflow-hidden py-1">
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRenamingChatId(s.id);
+                          setRenameInput(s.name);
+                          setActiveChatMenu(null);
+                        }}
+                        className="w-full text-left px-3 py-1.5 text-sm text-app-textPrimary hover:bg-[var(--color-app-surfaceHover)] flex items-center gap-2"
+                      >
+                        <i className="ph-light ph-pencil"></i> Rename
+                      </button>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteSession(s.id, e);
+                          setActiveChatMenu(null);
+                        }}
+                        className="w-full text-left px-3 py-1.5 text-sm text-red-400 hover:bg-red-400/10 flex items-center gap-2"
+                      >
+                        <i className="ph-light ph-trash"></i> Delete
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <button 
-                  onClick={(e) => deleteSession(s.id, e)}
-                  className="text-app-textMuted hover:text-red-400 p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                  title="Delete chat"
-                >
-                  <i className="ph-light ph-trash"></i>
-                </button>
               </div>
             ))
           )}
         </div>
-
-
       </div>
     </motion.aside>
 
@@ -1223,11 +1765,17 @@ return (
         <div className="flex flex-wrap items-center gap-y-2 gap-x-1 text-xs text-app-textSecondary w-full lg:w-auto">
           {!showSessionsPanel && (
             <button 
-              className="md:hidden text-app-textMuted hover:text-app-textPrimary transition-premium flex items-center justify-center p-1 rounded hover:bg-app-surface/60" 
+              className="md:hidden bg-gradient-to-br from-[#FF6A00] to-[#cc3a05] text-white hover:opacity-90 transition-premium flex items-center justify-center p-1.5 rounded-lg shadow-md" 
               onClick={() => setShowSessionsPanel(true)}
               title="Open Sidebar"
             >
-              <span className="material-symbols-outlined text-[22px]">left_panel_open</span>
+                <svg viewBox="0 0 397.46 281.64" className="w-[19px] h-[19px]" fill="currentColor">
+                  <path d="M340.814 84.181 C 340.814 99.640,340.848 105.964,340.890 98.234 C 340.932 90.505,340.932 77.857,340.890 70.127 C 340.848 62.398,340.814 68.722,340.814 84.181 M170.339 112.147 C 170.069 112.321,149.330 112.422,113.206 112.425 L 56.497 112.429 56.497 140.494 L 56.497 168.558 106.285 168.691 C 157.316 168.827,261.045 168.838,312.147 168.714 L 340.819 168.644 340.746 140.537 L 340.673 112.429 283.771 112.429 C 246.141 112.429,226.810 112.334,226.695 112.147 C 226.459 111.765,170.929 111.765,170.339 112.147 " />
+                  <path d="M340.814 140.395 C 340.814 155.855,340.848 162.179,340.890 154.449 C 340.932 146.720,340.932 134.071,340.890 126.342 C 340.848 118.612,340.814 124.936,340.814 140.395 M56.566 196.679 L 56.638 224.718 84.605 224.795 C 99.986 224.838,112.857 224.803,113.208 224.719 L 113.845 224.565 113.773 196.675 L 113.701 168.785 85.097 168.713 L 56.494 168.641 56.566 196.679 M169.962 168.832 C 169.555 169.240,169.748 224.485,170.158 224.826 C 170.438 225.058,178.144 225.125,198.759 225.072 L 226.977 225.000 227.049 196.822 L 227.121 168.644 198.636 168.644 C 182.969 168.644,170.066 168.729,169.962 168.832 M283.464 168.997 C 283.389 169.191,283.362 181.808,283.402 197.034 L 283.475 224.718 312.006 224.718 L 340.537 224.718 340.678 196.681 L 340.819 168.644 312.209 168.644 C 289.580 168.644,283.570 168.718,283.464 168.997 " />
+                  <path d="M340.814 27.966 C 340.814 43.425,340.848 49.749,340.890 42.020 C 340.932 34.290,340.932 21.642,340.890 13.912 C 340.848 6.183,340.814 12.507,340.814 27.966 M113.702 55.930 C 113.586 56.118,103.890 56.215,85.012 56.215 L 56.497 56.215 56.497 84.322 L 56.497 112.429 113.112 112.429 C 144.251 112.429,169.929 112.352,170.175 112.258 C 170.630 112.083,170.900 57.271,170.452 56.102 C 170.246 55.566,114.032 55.396,113.702 55.930 M226.869 56.033 C 226.637 56.314,226.570 63.946,226.623 84.353 L 226.695 112.288 283.757 112.359 L 340.819 112.431 340.746 84.323 L 340.673 56.215 312.161 56.215 C 293.458 56.215,283.589 56.118,283.475 55.932 C 283.178 55.452,227.269 55.552,226.869 56.033 " />
+                  <path d="M56.497 28.109 L 56.497 56.217 85.099 56.145 L 113.701 56.073 113.773 28.037 L 113.845 0.000 85.171 0.000 L 56.497 0.000 56.497 28.109 M283.403 28.037 L 283.475 56.073 312.147 56.145 L 340.819 56.217 340.746 28.109 L 340.673 0.000 312.002 -0.000 L 283.331 -0.000 283.403 28.037 M226.407 84.181 C 226.407 99.484,226.441 105.745,226.483 98.093 C 226.525 90.441,226.525 77.920,226.483 70.268 C 226.441 62.617,226.407 68.877,226.407 84.181 " />
+                  <path d="M340.677 196.751 L 340.537 224.718 284.084 224.613 C 238.408 224.529,227.501 224.578,226.951 224.873 L 226.271 225.237 226.271 253.099 C 226.271 274.392,226.351 281.040,226.610 281.299 C 226.872 281.562,246.271 281.638,312.203 281.638 L 397.458 281.638 397.458 253.107 L 397.458 224.576 369.210 224.576 L 340.963 224.576 340.891 196.681 L 340.818 168.785 340.677 196.751 M0.000 253.155 L 0.000 281.639 85.240 281.568 L 170.480 281.497 170.552 253.420 C 170.599 235.209,170.526 225.225,170.345 225.007 C 170.129 224.748,150.516 224.670,85.033 224.670 L 0.000 224.670 0.000 253.155 " />
+                </svg>
             </button>
           )}
 
@@ -1249,50 +1797,17 @@ return (
             
             <div className="relative flex items-center z-50">
               <div 
-                className="bg-transparent font-medium outline-none cursor-pointer text-app-textSecondary pr-4 flex items-center gap-1 select-none"
-                onClick={() => { setProviderDropdownOpen(!providerDropdownOpen); setModelDropdownOpen(false); }}
-              >
-                {provider === 'opencode' ? 'OpenCode' : 'NVIDIA'}
-                <i className="ph-light ph-caret-down text-xxs text-app-textMuted absolute right-0"></i>
-              </div>
-              
-              <AnimatePresence>
-                {providerDropdownOpen && (
-                  <motion.div 
-                    initial={{ opacity: 0, y: 5 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: 5 }}
-                    className="absolute top-full left-0 mt-1.5 w-32 bg-[var(--color-app-surface)] border border-app-border/30 rounded shadow-lg overflow-hidden flex flex-col py-1"
-                  >
-                    {[
-                      { id: 'opencode', name: 'OpenCode' },
-                      { id: 'nvidia', name: 'NVIDIA' }
-                    ].map(p => (
-                      <div 
-                        key={p.id}
-                        className={`px-3 py-2 text-xs cursor-pointer hover:bg-app-surface/60 transition-premium shrink-0 leading-normal ${provider === p.id ? 'text-app-textPrimary bg-app-surface/30' : 'text-app-textSecondary'}`}
-                        onClick={() => {
-                          setProvider(p.id);
-                          localStorage.setItem('selected_provider', p.id);
-                          setProviderDropdownOpen(false);
-                        }}
-                      >
-                        {p.name}
-                      </div>
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-            
-            <i className="ph-light ph-caret-right text-xxs text-app-textMuted z-50"></i>
-            
-            <div className="relative flex items-center z-50">
-              <div 
                 className="bg-transparent font-medium outline-none cursor-pointer max-w-[150px] truncate pr-4 flex items-center gap-1 select-none"
                 onClick={() => { setModelDropdownOpen(!modelDropdownOpen); setProviderDropdownOpen(false); }}
               >
-                {model.split('/').pop()}
+                {provider === 'mistral' && model.startsWith('ag_') ? (
+                  <span className="flex items-center gap-1.5 text-emerald-400 font-semibold tracking-wide bg-emerald-400/10 px-2 py-0.5 rounded shadow-sm border border-emerald-400/30">
+                    <i className="ph-fill ph-robot text-sm"></i>
+                    Agent Mode
+                  </span>
+                ) : (
+                  model.split('/').pop()
+                )}
                 <i className="ph-light ph-caret-down text-xxs text-app-textMuted absolute right-0 bg-transparent"></i>
               </div>
               
@@ -1318,6 +1833,24 @@ return (
                         {m.id.split('/').pop()}
                       </div>
                     ))}
+                    {provider === 'mistral' && (
+                      <div className="px-3 py-2 border-t border-app-border/30 mt-1">
+                        <input 
+                          type="text" 
+                          placeholder="Paste custom ag_... ID & Enter"
+                          className="w-full bg-black/20 border border-app-border/50 rounded px-2 py-1.5 text-[11px] text-app-textPrimary outline-none focus:border-emerald-400/50 transition-colors placeholder:text-app-textMuted"
+                          onClick={e => e.stopPropagation()}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+                              const newModel = e.currentTarget.value.trim();
+                              setModel(newModel);
+                              localStorage.setItem('selected_model', newModel);
+                              setModelDropdownOpen(false);
+                            }
+                          }}
+                        />
+                      </div>
+                    )}
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -1407,13 +1940,15 @@ return (
                  executePendingTools={executePendingTools} 
                  handleDeny={handleDeny} 
                  ToolGroupViewComponent={ToolGroupView} 
+                 running={running}
+                 onOpenCanvas={(content: string, language: string) => setActiveCanvas({ content, language })}
                />
              ));
           })()}
           
           {running && (
              <div className="flex items-center gap-2 text-xs">
-                 <span className="animate-shimmer font-medium">Claude is thinking...</span>
+                 <span className="animate-shimmer font-medium">Mistral is thinking...</span>
              </div>
           )}
           
@@ -1422,71 +1957,301 @@ return (
       </div>
 
       {/* Sticky Input Area */}
-      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-app-main via-app-main/95 to-transparent pt-12 pb-6 px-4 md:px-0 pointer-events-none">
-        <div className="max-w-2xl mx-auto pointer-events-auto">
-          {showMentions && filteredFiles.length > 0 && (
-            <div className="mb-2 w-full max-h-60 overflow-y-auto bg-app-surface/90 backdrop-blur border border-app-border/40 rounded-xl shadow-xl z-50 custom-scrollbar">
-              {filteredFiles.map((file, i) => (
+      <motion.div 
+        initial={false}
+        animate={{
+          bottom: messages.length === 0 ? "50%" : "0px",
+          y: messages.length === 0 ? "50%" : "0px",
+          paddingBottom: messages.length === 0 ? "0px" : "24px",
+          paddingTop: messages.length === 0 ? "0px" : "48px",
+        }}
+        transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+        className={`absolute left-0 right-0 px-4 md:px-0 pointer-events-none z-10 ${messages.length > 0 ? 'bg-gradient-to-t from-app-main via-app-main/95 to-transparent' : ''}`}
+      >
+        <div className="max-w-2xl mx-auto pointer-events-auto flex flex-col items-start w-full">
+          <AnimatePresence>
+            {messages.length === 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.3 }}
+                className="flex flex-col items-start mb-8 text-left w-full"
+              >
+                <svg className="w-14 h-14 mb-4 drop-shadow-md" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 212.121 151.515" shapeRendering="crispEdges">
+                  <rect x="30.303001" y="0" width="30.302999" height="30.302999" fill="#FFAF01"/>
+                  <rect x="151.515" y="0" width="30.302999" height="30.302999" fill="#FFAF01"/>
+                  <rect x="30.303001" y="30.303001" width="60.605999" height="30.302999" fill="#FF8204"/>
+                  <rect x="121.21201" y="30.303001" width="60.605999" height="30.302999" fill="#FF8204"/>
+                  <rect x="30.303001" y="60.606003" width="151.515" height="30.302999" fill="#FA500F"/>
+                  <rect x="30.303001" y="90.908997" width="30.302999" height="30.302999" fill="#E51300"/>
+                  <rect x="90.908997" y="90.908997" width="30.302999" height="30.302999" fill="#E51300"/>
+                  <rect x="151.515" y="90.908997" width="30.302999" height="30.302999" fill="#E51300"/>
+                  <rect x="0" y="121.21201" width="90.908997" height="30.302999" fill="#C4001D"/>
+                  <rect x="121.21201" y="121.21201" width="90.908997" height="30.302999" fill="#C4001D"/>
+                </svg>
+                <h1 className="text-4xl font-semibold text-white tracking-tight flex items-center justify-start drop-shadow-md">
+                  Welcome, Swapnil
+                </h1>
+              </motion.div>
+            )}
+          </AnimatePresence>
+          <div className="w-full relative">
+            {showMentions && filteredMentionItems.length > 0 && (
+            <div className="mb-2 w-full max-h-60 overflow-y-auto bg-[#27262B] backdrop-blur-md border border-app-border/40 rounded-xl shadow-xl z-50 custom-scrollbar">
+              {filteredMentionItems.map((item, i) => (
                 <div 
-                  key={file} 
-                  className={`px-4 py-2 text-xs cursor-pointer truncate transition-premium ${i === mentionIndex ? 'bg-app-surfaceHover text-app-textPrimary' : 'text-app-textSecondary hover:bg-app-surface'}`}
-                  onClick={() => insertMention(file)}
+                  key={`${item.category}-${item.name}`} 
+                  className={`px-3 py-2 cursor-pointer transition-premium flex items-center gap-2.5 ${i === mentionIndex ? 'bg-app-surfaceHover text-app-textPrimary' : 'text-app-textSecondary hover:bg-app-surface/50'}`}
+                  onClick={() => insertMention(item.name)}
                   onMouseEnter={() => setMentionIndex(i)}
                 >
-                  {file}
+                  <span className={`flex-shrink-0 w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold ${
+                    item.category === 'tool' ? 'bg-app-accent/20 text-app-accent' :
+                    item.category === 'mcp' ? 'bg-purple-500/20 text-purple-400' :
+                    'bg-blue-500/20 text-blue-400'
+                  }`}>
+                    {item.category === 'tool' ? <i className="ph-light ph-wrench text-xs" /> :
+                     item.category === 'mcp' ? <i className="ph-light ph-plug text-xs" /> :
+                     <i className="ph-light ph-file text-xs" />}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-medium truncate">{item.name}</div>
+                    {item.description && <div className="text-[10px] text-app-textMuted truncate">{item.description}</div>}
+                  </div>
+                  <span className={`flex-shrink-0 text-[9px] px-1.5 py-0.5 rounded-full font-medium ${
+                    item.category === 'tool' ? 'bg-app-accent/10 text-app-accent' :
+                    item.category === 'mcp' ? 'bg-purple-500/10 text-purple-400' :
+                    'bg-blue-500/10 text-blue-400'
+                  }`}>
+                    {item.category === 'mcp' ? 'MCP' : item.category === 'tool' ? 'Tool' : 'File'}
+                  </span>
                 </div>
               ))}
             </div>
           )}
           
-          <div className="bg-app-surface/80 backdrop-blur-md border border-app-border/40 rounded-xl shadow-xl flex flex-col focus-within:ring-1 focus-within:ring-app-border/80 focus-within:border-transparent transition-premium">
-            <textarea 
-              value={input}
-              onChange={handleInputChange}
-              onKeyDown={handleKeyDown}
-              disabled={running}
-              rows={1} 
-              placeholder={running ? "Claude is thinking..." : "Write a message... (@ to mention files)"} 
-              className="w-full bg-transparent text-app-textPrimary placeholder-app-textMuted px-4 pt-3 pb-1 resize-none outline-none max-h-32 min-h-[48px] text-sm" 
-            />
-            
-            <div className="flex items-center justify-between px-3 pb-2.5 pt-0.5">
-                <div className="flex items-center gap-1">
-                    <button className="p-1.5 text-app-textMuted hover:text-app-textSecondary rounded hover:bg-app-surface/60 transition-premium" title="Add attachment">
-                        <i className="ph-light ph-plus text-md"></i>
-                    </button>
-                    <button className="p-1.5 text-app-textMuted hover:text-app-textSecondary rounded hover:bg-app-surface/60 transition-premium" title="Use prompt">
-                        <i className="ph-light ph-file-text text-md"></i>
-                    </button>
-                    <button 
-                        onClick={() => setWebSearchEnabled(!webSearchEnabled)}
-                        className={`group relative p-1.5 rounded hover:bg-app-surface/60 transition-premium ${webSearchEnabled ? 'text-[#faf9f5]' : 'text-app-textMuted hover:text-app-textSecondary'}`} 
+          <div className="bg-[#27262B] backdrop-blur-md border border-app-border/40 rounded-xl shadow-xl flex items-end gap-2 px-2.5 py-2 focus-within:ring-1 focus-within:ring-app-border/80 focus-within:border-transparent transition-premium">
+            <div className="relative">
+              <button 
+                  onClick={() => { setShowPlusMenu(!showPlusMenu); setActiveSubmenu(null); }}
+                  disabled={running}
+                  title="Add attachment or options"
+                  className="w-9 h-9 flex-shrink-0 flex items-center justify-center bg-app-surface/60 hover:bg-app-surface border border-app-border/40 text-app-textMuted hover:text-app-textSecondary rounded-lg transition-premium relative z-50"
+              >
+                  <i className={`ph-light ph-plus text-md transition-transform duration-200 ${showPlusMenu ? 'rotate-45' : ''}`}></i>
+              </button>
+              
+              <AnimatePresence>
+                {showPlusMenu && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => { setShowPlusMenu(false); setActiveSubmenu(null); }} />
+                    <motion.div
+                      layout
+                      initial={{ opacity: 0, y: messages.length === 0 ? -10 : 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: messages.length === 0 ? -10 : 10, scale: 0.95 }}
+                      transition={{ duration: 0.15, layout: { duration: 0.2, ease: "easeOut" } }}
+                      className={`absolute left-0 w-48 bg-[#27262B] backdrop-blur-md border border-app-border/40 rounded-xl shadow-2xl z-50 overflow-hidden ${messages.length === 0 ? 'top-full mt-3' : 'bottom-full mb-3'}`}
                     >
-                        <i className="ph-light ph-globe text-md"></i>
-                        <span className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-[#252320] border border-app-border/40 text-app-textSecondary text-[11px] font-medium px-2 py-1 rounded shadow-lg pointer-events-none whitespace-nowrap z-50">
-                            Web Search
-                            <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-[#252320] border-r border-b border-app-border/40 rotate-45"></div>
-                        </span>
-                    </button>
-                </div>
-                
-                <div className="flex items-center gap-2">
-                    <button 
-                       onClick={() => handleSubmit()} 
-                       disabled={!input.trim() || running}
-                       className="p-1.5 bg-app-textPrimary hover:bg-white text-app-main rounded-md disabled:opacity-30 disabled:bg-app-surface disabled:text-app-textMuted transition-premium flex items-center justify-center"
-                    >
-                       <i className="ph-bold ph-arrow-up text-sm"></i>
-                    </button>
-                </div>
+                      <AnimatePresence mode="popLayout" initial={false}>
+                        {activeSubmenu === null && (
+                          <motion.div
+                            key="main"
+                            initial={{ opacity: 0, x: -10, filter: 'blur(4px)' }}
+                            animate={{ opacity: 1, x: 0, filter: 'blur(0px)', transition: { delay: 0.15, duration: 0.15, ease: "easeOut" } }}
+                            exit={{ opacity: 0, x: -10, filter: 'blur(4px)', transition: { duration: 0.1, ease: "easeIn" } }}
+                            className="flex flex-col p-1.5 w-full"
+                          >
+                            <button onClick={() => setActiveSubmenu('provider')} className="flex items-center justify-between px-2.5 py-2 text-xs rounded-lg hover:bg-app-surface/50 transition-premium text-app-textPrimary w-full text-left">
+                              <div className="flex items-center gap-2">
+                                <i className="ph-light ph-cpu text-app-textMuted text-sm"></i>
+                                <span className="font-medium">Provider</span>
+                              </div>
+                              <div className="flex items-center gap-1 text-app-textMuted">
+                                <span className="capitalize">{provider}</span>
+                                <i className="ph-light ph-caret-right"></i>
+                              </div>
+                            </button>
+                            
+                            <button onClick={() => setActiveSubmenu('reasoning')} className="flex items-center justify-between px-2.5 py-2 text-xs rounded-lg hover:bg-app-surface/50 transition-premium text-app-textPrimary w-full text-left mt-0.5">
+                              <div className="flex items-center gap-2">
+                                <i className="ph-light ph-brain text-app-textMuted text-sm"></i>
+                                <span className="font-medium">Reasoning</span>
+                              </div>
+                              <div className="flex items-center gap-1 text-app-textMuted">
+                                <span className="capitalize">{reasoningEffort}</span>
+                                <i className="ph-light ph-caret-right"></i>
+                              </div>
+                            </button>
+                            
+                            <div className="h-px bg-app-border/20 my-1.5 mx-2"></div>
+                            
+                            <button 
+                              onClick={() => {
+                                setWebSearchEnabled(!webSearchEnabled);
+                                setShowPlusMenu(false);
+                              }}
+                              className="flex items-center justify-between px-2.5 py-2 text-xs rounded-lg hover:bg-app-surface/50 transition-premium text-app-textPrimary w-full text-left group"
+                            >
+                              <div className="flex items-center gap-2">
+                                <i className="ph-light ph-globe text-app-textMuted text-sm"></i>
+                                <span className="font-medium">Web Search</span>
+                              </div>
+                              <div className={`w-7 h-4 rounded-full flex items-center p-0.5 transition-colors duration-300 ${webSearchEnabled ? 'bg-[#1A191E]' : 'bg-[#3e3e3b]'}`}>
+                                 <div className={`w-3 h-3 rounded-full shadow-sm transition-transform duration-300 ${webSearchEnabled ? 'bg-white translate-x-3' : 'bg-white translate-x-0'}`}></div>
+                              </div>
+                            </button>
+                          </motion.div>
+                        )}
+                        
+                        {activeSubmenu === 'provider' && (
+                          <motion.div
+                            key="provider"
+                            initial={{ opacity: 0, x: 10, filter: 'blur(4px)' }}
+                            animate={{ opacity: 1, x: 0, filter: 'blur(0px)', transition: { delay: 0.15, duration: 0.15, ease: "easeOut" } }}
+                            exit={{ opacity: 0, x: 10, filter: 'blur(4px)', transition: { duration: 0.1, ease: "easeIn" } }}
+                            className="flex flex-col p-1.5 w-full"
+                          >
+                            <button onClick={() => setActiveSubmenu(null)} className="flex items-center gap-2 px-2.5 py-2 text-xs rounded-lg hover:bg-app-surface/50 transition-premium text-app-textSecondary hover:text-app-textPrimary w-full text-left mb-1">
+                              <i className="ph-light ph-caret-left"></i>
+                              <span className="font-medium">Back</span>
+                            </button>
+                            {[
+                              { id: 'opencode', name: 'OpenCode' },
+                              { id: 'nvidia', name: 'NVIDIA' },
+                              { id: 'openrouter', name: 'OpenRouter' },
+                              { id: 'mistral', name: 'Mistral' }
+                            ].map(p => (
+                              <button 
+                                key={p.id}
+                                onClick={() => {
+                                  setProvider(p.id);
+                                  localStorage.setItem('selected_provider', p.id);
+                                  setActiveSubmenu(null);
+                                  setShowPlusMenu(false);
+                                }}
+                                className={`flex items-center justify-between px-2.5 py-2 text-xs rounded-lg transition-premium w-full text-left ${provider === p.id ? 'bg-app-surface/60 text-app-textPrimary' : 'hover:bg-app-surface/30 text-app-textSecondary hover:text-app-textPrimary'}`}
+                              >
+                                <span className="font-medium">{p.name}</span>
+                                {provider === p.id && <i className="ph-fill ph-check-circle text-app-accent"></i>}
+                              </button>
+                            ))}
+                          </motion.div>
+                        )}
+                        
+                        {activeSubmenu === 'reasoning' && (
+                          <motion.div
+                            key="reasoning"
+                            initial={{ opacity: 0, x: 10, filter: 'blur(4px)' }}
+                            animate={{ opacity: 1, x: 0, filter: 'blur(0px)', transition: { delay: 0.15, duration: 0.15, ease: "easeOut" } }}
+                            exit={{ opacity: 0, x: 10, filter: 'blur(4px)', transition: { duration: 0.1, ease: "easeIn" } }}
+                            className="flex flex-col p-1.5 w-full"
+                          >
+                            <button onClick={() => setActiveSubmenu(null)} className="flex items-center gap-2 px-2.5 py-2 text-xs rounded-lg hover:bg-app-surface/50 transition-premium text-app-textSecondary hover:text-app-textPrimary w-full text-left mb-1">
+                              <i className="ph-light ph-caret-left"></i>
+                              <span className="font-medium">Back</span>
+                            </button>
+                            {[
+                              { id: 'high', name: 'High', color: 'text-emerald-400' },
+                              { id: 'medium', name: 'Medium', color: 'text-yellow-400' },
+                              { id: 'low', name: 'Low', color: 'text-white' },
+                              { id: 'none', name: 'None', color: 'text-app-textSecondary' }
+                            ].map(e => (
+                              <button 
+                                key={e.id}
+                                onClick={() => {
+                                  setReasoningEffort(e.id);
+                                  localStorage.setItem('reasoning_effort', e.id);
+                                  setActiveSubmenu(null);
+                                  setShowPlusMenu(false);
+                                }}
+                                className={`flex items-center justify-between px-2.5 py-2 text-xs rounded-lg transition-premium w-full text-left ${reasoningEffort === e.id ? `bg-app-surface/60 ${e.color}` : 'hover:bg-app-surface/30 text-app-textSecondary hover:text-app-textPrimary'}`}
+                              >
+                                <span className="font-medium">{e.name}</span>
+                                {reasoningEffort === e.id && <i className={`ph-fill ph-check-circle ${e.color}`}></i>}
+                              </button>
+                            ))}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
             </div>
+
+            <div className="flex-1 relative flex flex-col min-w-0">
+              {(!input && !running) && <AnimatedPlaceholder />}
+              <textarea 
+                value={input}
+                onChange={handleInputChange}
+                onKeyDown={handleKeyDown}
+                disabled={running}
+                rows={1}
+                placeholder={running ? (rateLimitCountdown !== null ? `⏳ Rate limited. Retrying in ${rateLimitCountdown}s...` : "Mistral is thinking...") : ""} 
+                className="flex-1 bg-transparent text-app-textPrimary placeholder-app-textMuted outline-none text-[16px] md:text-sm min-w-0 resize-none max-h-32 overflow-y-auto custom-scrollbar py-2 relative z-10" 
+              />
+            </div>
+
+            <button 
+                onClick={() => running ? setRunning(false) : handleSubmit()} 
+                disabled={!input.trim() && !running}
+                className={`relative w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-lg transition-premium ${
+                  running 
+                    ? 'bg-white text-[#27262B]' 
+                    : 'bg-white hover:bg-gray-200 text-black disabled:bg-[#27262B] disabled:text-white'
+                }`}
+            >
+              <AnimatePresence initial={false}>
+                {running ? (
+                  <motion.div
+                    key="stop"
+                    initial={{ y: 15, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    exit={{ y: -15, opacity: 0 }}
+                    transition={{ duration: 0.2, ease: "easeOut" }}
+                    className="absolute inset-0 flex items-center justify-center"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                      <rect width="12" height="12" rx="2" />
+                    </svg>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="send"
+                    initial={{ y: 15, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    exit={{ y: -15, opacity: 0 }}
+                    transition={{ duration: 0.2, ease: "easeOut" }}
+                    className="absolute inset-0 flex items-center justify-center"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className="-rotate-90">
+                      <path fill="currentColor" d="M12 18v4h4v-4h-4ZM16 14v4h4v-4h-4ZM20 10v4h4v-4h-4ZM16 6v4h4V6h-4ZM12 2v4h4V2h-4ZM12 10v4h4v-4h-4ZM8 10v4h4v-4H8ZM4 10v4h4v-4H4ZM0 10v4h4v-4H0Z"/>
+                    </svg>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </button>
           </div>
           
-          <div className="text-center mt-2 text-[10px] text-app-textMuted/75">
-              Claude is AI and can make mistakes. Please double-check responses.
+          <AnimatePresence>
+            {messages.length > 0 && (
+              <motion.div 
+                initial={{ opacity: 0 }} 
+                animate={{ opacity: 1 }} 
+                className="text-center mt-2 text-[10px] text-app-textMuted/75 mb-4"
+              >
+                  Mistral is AI and can make mistakes.<span className="hidden md:inline"> Please double-check responses.</span>
+              </motion.div>
+            )}
+          </AnimatePresence>
           </div>
         </div>
-      </div>
+      </motion.div>
+      
+      {/* Sunset Stripe Band */}
+      <div className="absolute bottom-0 left-0 right-0 h-[8px] z-50 pointer-events-none" style={{ background: 'linear-gradient(to right, #fa520f, #ffa110, #ffb83e, #ffd900, #fff8e0)' }} />
 
 
 
@@ -1712,444 +2477,6 @@ return (
       )}
     </AnimatePresence>
 
-    {/* Customize Modal */}
-    <AnimatePresence>
-      {showCustomizeModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center">
-          {/* Backdrop */}
-          <motion.div 
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}
-            className="absolute inset-0 bg-black/[.13] backdrop-blur-[2px]"
-            onClick={() => setShowCustomizeModal(false)}
-          />
-          
-          {/* Modal Container */}
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="relative w-[1024px] h-[650px] max-w-[95vw] max-h-[90vh] bg-app-main rounded-2xl overflow-hidden flex border border-app-border/50"
-          >
-            {/* Top Right Action Buttons */}
-            <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
-              <button className="p-1.5 rounded-lg text-app-textMuted hover:text-app-textPrimary hover:bg-app-surface transition-colors flex items-center justify-center">
-                <span className="material-symbols-outlined text-[20px]">search</span>
-              </button>
-              <button 
-                onClick={() => setShowAddConnectorModal(true)}
-                className="flex items-center gap-1 px-4 py-1.5 bg-[#161615] border border-app-border/20 rounded-lg text-sm font-medium text-app-textPrimary hover:bg-app-surface transition-colors shadow-sm"
-              >
-                Add
-                <span className="material-symbols-outlined text-[16px]">keyboard_arrow_down</span>
-              </button>
-              <button 
-                onClick={() => setShowCustomizeModal(false)}
-                className="p-1.5 rounded-lg hover:bg-app-surface text-app-textMuted hover:text-app-textPrimary transition-premium"
-              >
-                <span className="material-symbols-outlined text-[20px]">close</span>
-              </button>
-            </div>
-
-            {/* Left Column (20% Strip Color) */}
-            <div className="w-[20%] bg-[#1C1C1A] border-r border-app-border/30 p-3 flex flex-col gap-1">
-              <h2 className="text-xs font-semibold text-app-textSecondary px-2 py-2 mb-1">Customize</h2>
-              
-              <button className="flex items-center gap-2.5 w-full p-2 rounded-lg bg-[var(--color-app-surfaceHover)] text-app-textPrimary transition-premium text-left">
-                <span className="material-symbols-outlined text-[18px] text-[#cc785c] shrink-0">cable</span>
-                <span className="text-sm font-medium">Connectors</span>
-              </button>
-            </div>
-            
-            {/* Right Column (80% Chat Bg Color) */}
-            <div className="flex-1 bg-app-main p-8 flex flex-col relative overflow-hidden">
-              <AnimatePresence mode="wait">
-                {selectedConnectorUrl ? (
-                  <motion.div
-                    key="details"
-                    initial={{ opacity: 0, filter: 'blur(8px)' }}
-                    animate={{ opacity: 1, filter: 'blur(0px)' }}
-                    exit={{ opacity: 0, filter: 'blur(8px)' }}
-                    transition={{ duration: 0.2 }}
-                    className="flex-1 flex flex-col h-full overflow-hidden"
-                  >
-                    <div className="flex items-center justify-between mb-8 pr-24">
-                      <button 
-                        onClick={() => setSelectedConnectorUrl(null)}
-                        className="flex items-center gap-2 text-app-textSecondary hover:text-app-textPrimary transition-colors"
-                      >
-                        <span className="material-symbols-outlined text-[20px]">arrow_back</span>
-                        <span className="text-lg font-semibold text-app-textPrimary">Connectors</span>
-                      </button>
-                    </div>
-                  
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-lg bg-[#2a2a28] border border-app-border/30 flex items-center justify-center text-xl font-bold text-app-textPrimary">
-                        {getMcpName(selectedConnectorUrl).charAt(0)}
-                      </div>
-                      <h2 className="text-2xl font-bold text-app-textPrimary">{getMcpName(selectedConnectorUrl)}</h2>
-                    </div>
-                    <div className="flex items-center gap-3 relative">
-                      {getConnectedMcpUrls().includes(selectedConnectorUrl) ? (
-                        <button 
-                          onClick={() => { handleDisconnectMcp(selectedConnectorUrl); }}
-                          className="px-4 py-1.5 rounded-lg border border-app-border/50 text-app-textPrimary text-sm font-medium hover:bg-app-surface transition-colors"
-                        >
-                          Disconnect
-                        </button>
-                      ) : (
-                        <button 
-                          onClick={async () => {
-                            const res = await connectMcp(selectedConnectorUrl);
-                            if (res.success) {
-                                saveMcpConnectionState(selectedConnectorUrl, true);
-                            }
-                            setMcpReloadState(prev => prev + 1);
-                          }}
-                          className="px-4 py-1.5 rounded-lg border border-app-border/50 text-app-textPrimary text-sm font-medium bg-app-surface hover:bg-app-surface/80 transition-colors"
-                        >
-                          Connect
-                        </button>
-                      )}
-                      <button 
-                        onClick={() => setShowConnectorMenu(!showConnectorMenu)}
-                        className="p-1 rounded-md text-app-textMuted hover:text-app-textPrimary hover:bg-app-surface transition-colors"
-                      >
-                        <span className="material-symbols-outlined text-[24px]">more_vert</span>
-                      </button>
-                      
-                      <AnimatePresence>
-                        {showConnectorMenu && (
-                          <motion.div
-                            initial={{ opacity: 0, y: -5 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -5 }}
-                            className="absolute top-full right-0 mt-2 w-48 bg-[#1e1e1d] border border-app-border/50 rounded-lg shadow-xl overflow-hidden z-50 py-1"
-                          >
-                            <button 
-                              onClick={async () => {
-                                setShowConnectorMenu(false);
-                                const res = await connectMcp(selectedConnectorUrl);
-                                if (res.success) {
-                                    saveMcpConnectionState(selectedConnectorUrl, true);
-                                }
-                                setMcpReloadState(prev => prev + 1);
-                              }} 
-                              className="flex items-center gap-2 w-full px-3 py-2 text-sm text-app-textPrimary hover:bg-app-surface/50 text-left transition-colors"
-                            >
-                              <span className="material-symbols-outlined text-[16px]">sync</span> Refresh tools list
-                            </button>
-                            <button 
-                              onClick={() => {
-                                setShowConnectorMenu(false);
-                                handleRemoveMcp(selectedConnectorUrl);
-                                setSelectedConnectorUrl(null);
-                              }} 
-                              className="flex items-center gap-2 w-full px-3 py-2 text-sm text-red-400 hover:bg-red-400/10 text-left transition-colors"
-                            >
-                              <span className="material-symbols-outlined text-[16px]">delete</span> Remove
-                            </button>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center gap-2 mb-8">
-                    <span className="text-xs text-app-textMuted font-mono bg-app-surface px-2 py-1 rounded border border-app-border/30">{selectedConnectorUrl}</span>
-                    <button className="text-app-textMuted hover:text-app-textPrimary transition-colors">
-                      <span className="material-symbols-outlined text-[16px]">content_copy</span>
-                    </button>
-                  </div>
-                  
-                  <div className="flex-1 flex flex-col min-h-0 pr-2">
-                    <div className="mb-6 shrink-0">
-                      <h3 className="text-sm font-semibold text-app-textPrimary mb-1">Tool permissions</h3>
-                      <p className="text-sm text-app-textMuted">Choose when Claude is allowed to use these tools.</p>
-                    </div>
-                    
-                    <div className="flex items-center justify-between mb-4 border-b border-app-border/30 pb-2 shrink-0">
-                      <button 
-                        onClick={() => setShowConnectorTools(!showConnectorTools)}
-                        className="flex items-center gap-2 text-sm font-semibold text-app-textPrimary hover:text-app-textSecondary transition-colors"
-                      >
-                        <span className="material-symbols-outlined text-[18px]">
-                          {showConnectorTools ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}
-                        </span>
-                        Other tools
-                        <span className="px-1.5 py-0.5 rounded-full bg-app-surface text-app-textMuted text-[11px]">{getMcpToolsForUrl(selectedConnectorUrl).length}</span>
-                      </button>
-                      
-                      {(() => {
-                        const tools = getMcpToolsForUrl(selectedConnectorUrl);
-                        const allState = tools.length > 0 && tools.every(t => getToolPermission(t.function.name) === getToolPermission(tools[0].function.name)) 
-                          ? getToolPermission(tools[0].function.name) 
-                          : 'mixed';
-                        
-                        const display = {
-                          allow: { icon: 'done_all', text: 'Allow all', color: 'text-white' },
-                          ask: { icon: 'front_hand', text: 'Needs approval', color: 'text-white' },
-                          block: { icon: 'block', text: 'Deny all', color: 'text-white' },
-                          mixed: { icon: 'tune', text: 'Mixed permissions', color: 'text-app-textMuted' },
-                        }[allState];
-
-                        const setAll = (mode: 'allow' | 'ask' | 'block') => {
-                          setToolPermissions(prev => {
-                            const updated = { ...prev };
-                            tools.forEach(t => {
-                              updated[t.function.name] = mode;
-                            });
-                            return updated;
-                          });
-                          setShowGlobalPermissionDropdown(false);
-                        };
-
-                        return (
-                          <div className="relative">
-                            <button 
-                              onClick={() => setShowGlobalPermissionDropdown(!showGlobalPermissionDropdown)}
-                              className="flex items-center px-3 py-1 rounded-lg border border-app-border/50 text-xs font-medium text-app-textPrimary hover:bg-app-surface transition-colors"
-                            >
-                              <AnimatePresence mode="wait">
-                                <motion.div
-                                  key={allState}
-                                  initial={{ opacity: 0, filter: 'blur(4px)' }}
-                                  animate={{ opacity: 1, filter: 'blur(0px)' }}
-                                  exit={{ opacity: 0, filter: 'blur(4px)' }}
-                                  transition={{ duration: 0.15 }}
-                                  className="flex items-center gap-1.5"
-                                >
-                                  <span className={`material-symbols-outlined text-[16px] ${display.color}`}>{display.icon}</span>
-                                  <span>{display.text}</span>
-                                </motion.div>
-                              </AnimatePresence>
-                              <span className="material-symbols-outlined text-[16px] ml-1.5">keyboard_arrow_down</span>
-                            </button>
-                            
-                            <AnimatePresence>
-                              {showGlobalPermissionDropdown && (
-                                <motion.div
-                                  initial={{ opacity: 0, y: -5 }}
-                                  animate={{ opacity: 1, y: 0 }}
-                                  exit={{ opacity: 0, y: -5 }}
-                                  className="absolute top-full right-0 mt-2 w-48 bg-[#1e1e1d] border border-app-border/50 rounded-lg shadow-xl overflow-hidden z-50 py-1"
-                                >
-                                  <button onClick={() => setAll('allow')} className="flex items-center gap-2 w-full px-3 py-2 text-sm text-app-textPrimary hover:bg-app-surface/50 text-left transition-colors">
-                                    <span className="material-symbols-outlined text-[16px]">done_all</span> Allow all
-                                  </button>
-                                  <button onClick={() => setAll('ask')} className="flex items-center gap-2 w-full px-3 py-2 text-sm text-app-textPrimary hover:bg-app-surface/50 text-left transition-colors">
-                                    <span className="material-symbols-outlined text-[16px]">front_hand</span> Needs approval
-                                  </button>
-                                  <button onClick={() => setAll('block')} className="flex items-center gap-2 w-full px-3 py-2 text-sm text-app-textPrimary hover:bg-app-surface/50 text-left transition-colors">
-                                    <span className="material-symbols-outlined text-[16px]">block</span> Deny all
-                                  </button>
-                                </motion.div>
-                              )}
-                            </AnimatePresence>
-                          </div>
-                        );
-                      })()}
-                    </div>
-                    
-                    <AnimatePresence>
-                      {showConnectorTools && (
-                        <motion.div 
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: 'auto', opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          className="flex flex-col flex-1 overflow-y-auto custom-scrollbar min-h-0 pr-2 pb-4"
-                        >
-                          {getMcpToolsForUrl(selectedConnectorUrl).map((tool, idx) => (
-                            <div key={idx} className="flex items-center justify-between py-3 border-b border-app-border/20 last:border-0 hover:bg-app-surface/30 px-2 rounded-lg transition-colors">
-                              <span className="text-sm text-app-textPrimary">{tool.function.name}</span>
-                              <div className="flex items-center bg-[#161615] border border-app-border/20 rounded-lg p-0.5">
-                                {(['allow', 'ask', 'block'] as const).map(mode => (
-                                  <button
-                                    key={mode}
-                                    onClick={() => setToolPermissions(prev => ({ ...prev, [tool.function.name]: mode }))}
-                                    className={`relative w-8 h-8 flex items-center justify-center rounded-md transition-colors ${
-                                      getToolPermission(tool.function.name) === mode ? 'text-white' : 'text-app-textMuted hover:text-white'
-                                    }`}
-                                    title={mode === 'allow' ? "Allow" : mode === 'ask' ? "Needs approval" : "Deny"}
-                                  >
-                                    {getToolPermission(tool.function.name) === mode && (
-                                      <motion.div
-                                        layoutId={`permission-${tool.function.name}`}
-                                        className="absolute inset-0 bg-app-surface border border-app-border/50 rounded-md shadow-sm"
-                                        transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
-                                      />
-                                    )}
-                                    <span className="material-symbols-outlined text-[18px] relative z-10">
-                                      {mode === 'allow' ? 'check' : mode === 'ask' ? 'front_hand' : 'block'}
-                                    </span>
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          ))}
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                  </motion.div>
-                ) : (
-                  <motion.div
-                    key="list"
-                    initial={{ opacity: 0, filter: 'blur(8px)' }}
-                    animate={{ opacity: 1, filter: 'blur(0px)' }}
-                    exit={{ opacity: 0, filter: 'blur(8px)' }}
-                    transition={{ duration: 0.2 }}
-                    className="flex-1 flex flex-col h-full overflow-hidden"
-                  >
-                    <h1 className="text-xl font-semibold mb-4 pr-24">Connectors</h1>
-                  
-                  <div className="flex items-center bg-[#161615] border border-app-border/20 rounded-lg p-0.5 w-fit mb-6">
-                    {['All', 'Connected', 'Disconnected'].map((tab) => (
-                      <button
-                        key={tab}
-                        onClick={() => setActiveConnectorTab(tab)}
-                        className={`relative px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                          activeConnectorTab === tab
-                            ? 'text-white'
-                            : 'text-app-textMuted hover:text-white'
-                        }`}
-                      >
-                        {activeConnectorTab === tab && (
-                          <motion.div
-                            layoutId="activeConnectorTab"
-                            className="absolute inset-0 bg-app-surface border border-app-border/50 rounded-md shadow-sm"
-                            transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
-                          />
-                        )}
-                        <span className="relative z-10">{tab}</span>
-                      </button>
-                    ))}
-                  </div>
-                  <div className="flex-1 flex flex-col min-h-0 mt-4">
-                    {/* Table Headers */}
-                    <div className="flex items-center px-4 py-2 text-xs font-semibold text-app-textSecondary uppercase tracking-wider mb-2 border-b border-app-border/20">
-                      <div className="flex-1">Connector</div>
-                      <div className="w-32">Type</div>
-                      <div className="w-32">Status</div>
-                    </div>
-                    
-                    <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
-                      {(() => {
-                        const filteredMcpServers = mcpServers.filter(url => {
-                          if (activeConnectorTab === 'All') return true;
-                          const isConnected = getConnectedMcpUrls().includes(url);
-                          if (activeConnectorTab === 'Connected') return isConnected;
-                          if (activeConnectorTab === 'Disconnected') return !isConnected;
-                          return true;
-                        });
-
-                        return (
-                          <div className="flex flex-col gap-1">
-                            <AnimatePresence mode="popLayout">
-                              {filteredMcpServers.length === 0 ? (
-                                <motion.div
-                                  key={`empty-${activeConnectorTab}`}
-                                  initial={{ opacity: 0, filter: 'blur(4px)' }}
-                                  animate={{ opacity: 1, filter: 'blur(0px)' }}
-                                  exit={{ opacity: 0, filter: 'blur(4px)' }}
-                                  transition={{ duration: 0.15 }}
-                                  className="flex flex-col items-center justify-center text-app-textMuted py-12 opacity-50"
-                                >
-                                  <span className="material-symbols-outlined text-[32px] mb-2">cable</span>
-                                  <p className="text-sm">{mcpServers.length === 0 ? "No connectors added yet." : "No connectors found."}</p>
-                                </motion.div>
-                              ) : (
-                                filteredMcpServers.map((url) => (
-                                  <motion.div 
-                                    layout
-                                    key={url} 
-                                    initial={{ opacity: 0, filter: 'blur(4px)' }}
-                                    animate={{ opacity: 1, filter: 'blur(0px)' }}
-                                    exit={{ opacity: 0, filter: 'blur(4px)' }}
-                                    transition={{ duration: 0.2 }}
-                                    onClick={() => setSelectedConnectorUrl(url)}
-                                    className="flex items-center px-4 py-3 bg-[#2a2a28] rounded-xl cursor-pointer hover:bg-[#343432] transition-colors group relative border-b border-app-border/10 last:border-0"
-                                  >
-                                    {/* Connector Column */}
-                                    <div className="flex-1 flex items-center gap-3">
-                                      <div className="w-8 h-8 rounded bg-[#1e1e1c] border border-app-border/20 flex items-center justify-center shadow-sm">
-                                        <span className="material-symbols-outlined text-[18px] text-app-textPrimary">cable</span>
-                                      </div>
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-[14px] font-medium text-white">{getMcpName(url)}</span>
-                                      </div>
-                                    </div>
-
-                                    {/* Type Column */}
-                                    <div className="w-32 flex items-center gap-1.5">
-                                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-[#3e3e3b] text-[#b3b1ad] tracking-wide uppercase">Web</span>
-                                      <span className="text-[12px] text-app-textMuted">Custom</span>
-                                    </div>
-
-                                    {/* Status Column */}
-                                    <div className="w-32 flex items-center justify-between relative">
-                                      <div className="flex-1 relative h-7 flex items-center">
-                                        <AnimatePresence mode="wait">
-                                          {getConnectedMcpUrls().includes(url) ? (
-                                            <motion.div
-                                              key="connected"
-                                              initial={{ opacity: 0, filter: 'blur(4px)', scale: 0.95 }}
-                                              animate={{ opacity: 1, filter: 'blur(0px)', scale: 1 }}
-                                              exit={{ opacity: 0, filter: 'blur(4px)', scale: 0.95 }}
-                                              transition={{ duration: 0.15 }}
-                                              className="absolute left-0 flex items-center gap-1.5 text-app-textPrimary"
-                                            >
-                                              <span className="material-symbols-outlined text-[18px] text-app-textMuted">check</span>
-                                            </motion.div>
-                                          ) : (
-                                            <motion.button 
-                                              key="connect-btn"
-                                              initial={{ opacity: 0, filter: 'blur(4px)', scale: 0.95 }}
-                                              animate={{ opacity: 1, filter: 'blur(0px)', scale: 1 }}
-                                              exit={{ opacity: 0, filter: 'blur(4px)', scale: 0.95 }}
-                                              transition={{ duration: 0.15 }}
-                                              onClick={async (e) => {
-                                                e.stopPropagation();
-                                                const res = await connectMcp(url);
-                                                if (res.success) {
-                                                    saveMcpConnectionState(url, true);
-                                                }
-                                                setMcpReloadState(prev => prev + 1);
-                                              }}
-                                              className="absolute left-0 px-3 py-1 bg-[#161615] hover:bg-[#424240] border border-app-border/30 rounded-lg text-[12px] font-medium text-white transition-colors whitespace-nowrap"
-                                            >
-                                              Connect
-                                            </motion.button>
-                                          )}
-                                        </AnimatePresence>
-                                      </div>
-                                      <button 
-                                        onClick={(e) => { e.stopPropagation(); handleRemoveMcp(url); }}
-                                        className="text-app-textMuted hover:text-red-400 opacity-0 group-hover:opacity-100 transition-colors p-1"
-                                        title="Remove"
-                                      >
-                                        <span className="material-symbols-outlined text-[18px]">delete</span>
-                                      </button>
-                                    </div>
-                                  </motion.div>
-                                ))
-                              )}
-                            </AnimatePresence>
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          </motion.div>
-        </div>
-      )}
-    </AnimatePresence>
-
     {/* Add Connector Modal */}
     <AnimatePresence>
       {showAddConnectorModal && (
@@ -2186,7 +2513,7 @@ return (
             {/* Content */}
             <div className="px-5 pb-5 flex flex-col gap-5">
               <p className="text-[14px] text-[#b3b1ad] leading-relaxed">
-                Connect Claude to your data and tools. <a href="#" className="text-[#a4a098] underline hover:text-[#E8E5DC] transition-colors">Learn more about connectors</a> or explore <a href="#" className="text-[#a4a098] underline hover:text-[#E8E5DC] transition-colors">pre-built ones</a>.
+                Connect Mistral to your data and tools. <a href="#" className="text-[#a4a098] underline hover:text-[#E8E5DC] transition-colors">Learn more about connectors</a> or explore <a href="#" className="text-[#a4a098] underline hover:text-[#E8E5DC] transition-colors">pre-built ones</a>.
               </p>
 
               <div className="flex flex-col gap-3">
@@ -2269,6 +2596,76 @@ return (
         </div>
       )}
     </AnimatePresence>
+
+    {/* System Instructions Modal */}
+    <AnimatePresence>
+      {showSystemInstructionsModal && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center font-sans">
+          {/* Backdrop */}
+          <motion.div 
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
+            className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
+            onClick={() => setShowSystemInstructionsModal(false)}
+          />
+          
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 10 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            className="relative w-[600px] max-w-[95vw] bg-[var(--color-app-main)] rounded-2xl overflow-hidden flex flex-col border border-[var(--color-app-borderLight)] shadow-[0_16px_48px_-8px_rgba(0,0,0,0.3)]"
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-app-borderLight)] bg-[var(--color-app-surface)]">
+              <h2 className="text-lg font-semibold text-app-textPrimary">System Instructions</h2>
+              <button 
+                onClick={() => setShowSystemInstructionsModal(false)}
+                className="p-1.5 rounded-lg hover:bg-[var(--color-app-surfaceHover)] text-app-textMuted hover:text-app-textPrimary transition-colors"
+              >
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+            
+            <div className="p-6 bg-[var(--color-app-main)]">
+              <p className="text-sm text-app-textSecondary mb-4">
+                Define the behavior, tone, and constraints for the AI agent. These instructions will be appended to the default system prompt.
+              </p>
+              
+              <textarea
+                value={customInstructions}
+                onChange={(e) => setCustomInstructions(e.target.value)}
+                className="w-full h-[200px] bg-[var(--color-app-surface)] text-app-textPrimary border border-[var(--color-app-borderLight)] rounded-xl p-4 text-sm focus:outline-none focus:border-[#fa520f] transition-colors resize-none"
+                placeholder="e.g. Always respond in Spanish. Prefer concise answers."
+              />
+              
+              <div className="mt-6 flex justify-end gap-3">
+                <button
+                  onClick={() => setShowSystemInstructionsModal(false)}
+                  className="px-4 py-2 rounded-lg border border-[var(--color-app-borderLight)] text-app-textPrimary text-sm font-medium hover:bg-[var(--color-app-surface)] transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    localStorage.setItem('custom_instructions', customInstructions);
+                    setShowSystemInstructionsModal(false);
+                  }}
+                  className="px-4 py-2 rounded-lg bg-[#fa520f] hover:bg-[#cc3a05] text-white text-sm font-medium transition-colors"
+                >
+                  Save Instructions
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+    {activeCanvas && (
+      <Canvas 
+        content={activeCanvas.content} 
+        language={activeCanvas.language} 
+        onClose={() => setActiveCanvas(null)} 
+      />
+    )}
   </div>
 );
 }
