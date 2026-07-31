@@ -8,11 +8,8 @@ import 'lenis/dist/lenis.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ReactLenis root>
-      <App />
-    </ReactLenis>
+      <ReactLenis root>
+        <App />
+      </ReactLenis>
   </StrictMode>,
 );
-
-
-
