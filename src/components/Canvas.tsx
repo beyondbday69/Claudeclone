@@ -65,7 +65,7 @@ export default function Canvas({ content, language, onClose }: CanvasProps) {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        transition={{ duration: 0.2 }}
+        transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={onClose}
       />
@@ -74,7 +74,7 @@ export default function Canvas({ content, language, onClose }: CanvasProps) {
         initial={{ opacity: 0, scale: 0.95, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 10 }}
-        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+        transition={{ type: 'spring', damping: 34, stiffness: 380, mass: 0.85 }}
         className="relative w-full max-w-5xl h-[85vh] bg-[#1e1e1e] rounded-xl shadow-2xl flex flex-col overflow-hidden border border-white/10"
       >
         {/* Header */}
