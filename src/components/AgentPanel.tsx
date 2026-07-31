@@ -26,6 +26,10 @@ const VERBS = [
   "Draft"
 ];
 
+const smoothEase = [0.16, 1, 0.3, 1] as const;
+const quickSpring = { type: 'spring', stiffness: 420, damping: 34, mass: 0.8 } as const;
+const panelSpring = { type: 'spring', stiffness: 360, damping: 36, mass: 0.9 } as const;
+
 const AnimatedPlaceholder = () => {
   const [index, setIndex] = useState(0);
 
@@ -55,8 +59,8 @@ const AnimatedPlaceholder = () => {
                   key={i}
                   variants={{
                     initial: { y: 20, opacity: 0 },
-                    enter: { y: 0, opacity: 1, transition: { duration: 0.4, delay: i * 0.03 + Math.random() * 0.1, ease: 'easeOut' } },
-                    exit: { y: -20, opacity: 0, transition: { duration: 0.3, delay: i * 0.02 + Math.random() * 0.1, ease: 'easeIn' } }
+                    enter: { y: 0, opacity: 1, transition: { duration: 0.34, delay: i * 0.035, ease: smoothEase } },
+                    exit: { y: -16, opacity: 0, transition: { duration: 0.22, delay: i * 0.018, ease: smoothEase } }
                   }}
                   style={{ display: 'inline-block', whiteSpace: 'pre' }}
                 >
@@ -112,7 +116,7 @@ const ThinkBlock = ({ content, isActive }: { content: string, isActive?: boolean
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.3, ease: 'easeInOut' }}
+            transition={{ duration: 0.28, ease: smoothEase }}
             className="overflow-hidden"
           >
             <div className="mt-2 ml-[5px] pl-4 border-l-2 border-app-border/40 text-[14px] font-sans text-app-textMuted whitespace-pre-wrap leading-relaxed py-0.5">
@@ -1579,7 +1583,7 @@ return (
     <motion.aside
       initial={false}
       animate={{ width: showSessionsPanel ? (window.innerWidth < 768 ? '80%' : 260) : (window.innerWidth < 768 ? 0 : 56) }}
-      transition={{ duration: 0.2, ease: "easeInOut" }}
+      transition={panelSpring}
       className={`h-full bg-[#17161B] border-r border-[var(--color-app-border)] shrink-0 flex flex-col z-50 absolute md:relative left-0 top-0 overflow-hidden shadow-2xl md:shadow-none ${!showSessionsPanel ? 'max-md:hidden' : ''}`}
     >
       <div className="flex flex-col h-full min-w-[260px] w-[260px]">
@@ -1965,7 +1969,7 @@ return (
           paddingBottom: messages.length === 0 ? "0px" : "24px",
           paddingTop: messages.length === 0 ? "0px" : "48px",
         }}
-        transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+        transition={{ duration: 0.45, ease: smoothEase }}
         className={`absolute left-0 right-0 px-4 md:px-0 pointer-events-none z-10 ${messages.length > 0 ? 'bg-gradient-to-t from-app-main via-app-main/95 to-transparent' : ''}`}
       >
         <div className="max-w-2xl mx-auto pointer-events-auto flex flex-col items-start w-full">
@@ -1975,7 +1979,7 @@ return (
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
-                transition={{ duration: 0.3 }}
+                transition={{ duration: 0.28, ease: smoothEase }}
                 className="flex flex-col items-start mb-8 text-left w-full"
               >
                 <svg className="w-14 h-14 mb-4 drop-shadow-md" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 212.121 151.515" shapeRendering="crispEdges">
@@ -2051,7 +2055,7 @@ return (
                       initial={{ opacity: 0, y: messages.length === 0 ? -10 : 10, scale: 0.95 }}
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, y: messages.length === 0 ? -10 : 10, scale: 0.95 }}
-                      transition={{ duration: 0.15, layout: { duration: 0.2, ease: "easeOut" } }}
+                      transition={{ ...quickSpring, layout: { duration: 0.24, ease: smoothEase } }}
                       className={`absolute left-0 w-48 bg-[#27262B] backdrop-blur-md border border-app-border/40 rounded-xl shadow-2xl z-50 overflow-hidden ${messages.length === 0 ? 'top-full mt-3' : 'bottom-full mb-3'}`}
                     >
                       <AnimatePresence mode="popLayout" initial={false}>
@@ -2059,8 +2063,8 @@ return (
                           <motion.div
                             key="main"
                             initial={{ opacity: 0, x: -10, filter: 'blur(4px)' }}
-                            animate={{ opacity: 1, x: 0, filter: 'blur(0px)', transition: { delay: 0.15, duration: 0.15, ease: "easeOut" } }}
-                            exit={{ opacity: 0, x: -10, filter: 'blur(4px)', transition: { duration: 0.1, ease: "easeIn" } }}
+                            animate={{ opacity: 1, x: 0, filter: 'blur(0px)', transition: { delay: 0.08, duration: 0.22, ease: smoothEase } }}
+                            exit={{ opacity: 0, x: -8, filter: 'blur(4px)', transition: { duration: 0.16, ease: smoothEase } }}
                             className="flex flex-col p-1.5 w-full"
                           >
                             <button onClick={() => setActiveSubmenu('provider')} className="flex items-center justify-between px-2.5 py-2 text-xs rounded-lg hover:bg-app-surface/50 transition-premium text-app-textPrimary w-full text-left">
@@ -2109,8 +2113,8 @@ return (
                           <motion.div
                             key="provider"
                             initial={{ opacity: 0, x: 10, filter: 'blur(4px)' }}
-                            animate={{ opacity: 1, x: 0, filter: 'blur(0px)', transition: { delay: 0.15, duration: 0.15, ease: "easeOut" } }}
-                            exit={{ opacity: 0, x: 10, filter: 'blur(4px)', transition: { duration: 0.1, ease: "easeIn" } }}
+                            animate={{ opacity: 1, x: 0, filter: 'blur(0px)', transition: { delay: 0.08, duration: 0.22, ease: smoothEase } }}
+                            exit={{ opacity: 0, x: 8, filter: 'blur(4px)', transition: { duration: 0.16, ease: smoothEase } }}
                             className="flex flex-col p-1.5 w-full"
                           >
                             <button onClick={() => setActiveSubmenu(null)} className="flex items-center gap-2 px-2.5 py-2 text-xs rounded-lg hover:bg-app-surface/50 transition-premium text-app-textSecondary hover:text-app-textPrimary w-full text-left mb-1">
@@ -2144,8 +2148,8 @@ return (
                           <motion.div
                             key="reasoning"
                             initial={{ opacity: 0, x: 10, filter: 'blur(4px)' }}
-                            animate={{ opacity: 1, x: 0, filter: 'blur(0px)', transition: { delay: 0.15, duration: 0.15, ease: "easeOut" } }}
-                            exit={{ opacity: 0, x: 10, filter: 'blur(4px)', transition: { duration: 0.1, ease: "easeIn" } }}
+                            animate={{ opacity: 1, x: 0, filter: 'blur(0px)', transition: { delay: 0.08, duration: 0.22, ease: smoothEase } }}
+                            exit={{ opacity: 0, x: 8, filter: 'blur(4px)', transition: { duration: 0.16, ease: smoothEase } }}
                             className="flex flex-col p-1.5 w-full"
                           >
                             <button onClick={() => setActiveSubmenu(null)} className="flex items-center gap-2 px-2.5 py-2 text-xs rounded-lg hover:bg-app-surface/50 transition-premium text-app-textSecondary hover:text-app-textPrimary w-full text-left mb-1">
