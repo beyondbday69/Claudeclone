@@ -26,6 +26,10 @@ const VERBS = [
   "Draft"
 ];
 
+const smoothEase = [0.16, 1, 0.3, 1] as const;
+const quickSpring = { type: 'spring', stiffness: 420, damping: 34, mass: 0.8 } as const;
+const panelSpring = { type: 'spring', stiffness: 360, damping: 36, mass: 0.9 } as const;
+
 const AnimatedPlaceholder = () => {
   const [index, setIndex] = useState(0);
 
@@ -55,8 +59,8 @@ const AnimatedPlaceholder = () => {
                   key={i}
                   variants={{
                     initial: { y: 20, opacity: 0 },
-                    enter: { y: 0, opacity: 1, transition: { duration: 0.4, delay: i * 0.03 + Math.random() * 0.1, ease: 'easeOut' } },
-                    exit: { y: -20, opacity: 0, transition: { duration: 0.3, delay: i * 0.02 + Math.random() * 0.1, ease: 'easeIn' } }
+                    enter: { y: 0, opacity: 1, transition: { duration: 0.34, delay: i * 0.035, ease: smoothEase } },
+                    exit: { y: -16, opacity: 0, transition: { duration: 0.22, delay: i * 0.018, ease: smoothEase } }
                   }}
                   style={{ display: 'inline-block', whiteSpace: 'pre' }}
                 >
@@ -112,7 +116,7 @@ const ThinkBlock = ({ content, isActive }: { content: string, isActive?: boolean
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.3, ease: 'easeInOut' }}
+            transition={{ duration: 0.28, ease: smoothEase }}
             className="overflow-hidden"
           >
             <div className="mt-2 ml-[5px] pl-4 border-l-2 border-app-border/40 text-[14px] font-sans text-app-textMuted whitespace-pre-wrap leading-relaxed py-0.5">
@@ -1579,7 +1583,7 @@ return (
     <motion.aside
       initial={false}
       animate={{ width: showSessionsPanel ? (window.innerWidth < 768 ? '80%' : 260) : (window.innerWidth < 768 ? 0 : 56) }}
-      transition={{ duration: 0.2, ease: "easeInOut" }}
+      transition={panelSpring}
       className={`h-full bg-[#17161B] border-r border-[var(--color-app-border)] shrink-0 flex flex-col z-50 absolute md:relative left-0 top-0 overflow-hidden shadow-2xl md:shadow-none ${!showSessionsPanel ? 'max-md:hidden' : ''}`}
     >
       <div className="flex flex-col h-full min-w-[260px] w-[260px]">
@@ -1655,9 +1659,13 @@ return (
                        <div className="absolute left-0 top-[17px] w-3 h-[2px] bg-[var(--color-app-borderLight)] rounded-full"></div>
                        <button
                          onClick={() => setShowAddConnectorModal(true)}
-                         className="flex items-center gap-2 w-full px-3 py-1.5 text-sm text-app-textSecondary hover:text-app-textPrimary hover:bg-[var(--color-app-surfaceHover)] rounded-lg text-left transition-colors"
+                         className="flex items-center justify-between gap-2 w-full px-3 py-2 text-sm text-app-textSecondary hover:text-app-textPrimary hover:bg-[var(--color-app-surfaceHover)] rounded-xl text-left transition-premium border border-transparent hover:border-app-border/40"
                        >
-                         Connectors
+                         <span className="flex items-center gap-2">
+                           <i className="ph-light ph-plugs-connected text-app-textMuted"></i>
+                           Connectors
+                         </span>
+                         <span className="text-[10px] text-app-textMuted bg-app-surface/60 border border-app-border/30 rounded-full px-1.5 py-0.5">MCP</span>
                        </button>
                      </div>
 
@@ -1965,7 +1973,7 @@ return (
           paddingBottom: messages.length === 0 ? "0px" : "24px",
           paddingTop: messages.length === 0 ? "0px" : "48px",
         }}
-        transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+        transition={{ duration: 0.45, ease: smoothEase }}
         className={`absolute left-0 right-0 px-4 md:px-0 pointer-events-none z-10 ${messages.length > 0 ? 'bg-gradient-to-t from-app-main via-app-main/95 to-transparent' : ''}`}
       >
         <div className="max-w-2xl mx-auto pointer-events-auto flex flex-col items-start w-full">
@@ -1975,7 +1983,7 @@ return (
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
-                transition={{ duration: 0.3 }}
+                transition={{ duration: 0.28, ease: smoothEase }}
                 className="flex flex-col items-start mb-8 text-left w-full"
               >
                 <svg className="w-14 h-14 mb-4 drop-shadow-md" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 212.121 151.515" shapeRendering="crispEdges">
@@ -2051,7 +2059,7 @@ return (
                       initial={{ opacity: 0, y: messages.length === 0 ? -10 : 10, scale: 0.95 }}
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, y: messages.length === 0 ? -10 : 10, scale: 0.95 }}
-                      transition={{ duration: 0.15, layout: { duration: 0.2, ease: "easeOut" } }}
+                      transition={{ ...quickSpring, layout: { duration: 0.24, ease: smoothEase } }}
                       className={`absolute left-0 w-48 bg-[#27262B] backdrop-blur-md border border-app-border/40 rounded-xl shadow-2xl z-50 overflow-hidden ${messages.length === 0 ? 'top-full mt-3' : 'bottom-full mb-3'}`}
                     >
                       <AnimatePresence mode="popLayout" initial={false}>
@@ -2059,8 +2067,8 @@ return (
                           <motion.div
                             key="main"
                             initial={{ opacity: 0, x: -10, filter: 'blur(4px)' }}
-                            animate={{ opacity: 1, x: 0, filter: 'blur(0px)', transition: { delay: 0.15, duration: 0.15, ease: "easeOut" } }}
-                            exit={{ opacity: 0, x: -10, filter: 'blur(4px)', transition: { duration: 0.1, ease: "easeIn" } }}
+                            animate={{ opacity: 1, x: 0, filter: 'blur(0px)', transition: { delay: 0.08, duration: 0.22, ease: smoothEase } }}
+                            exit={{ opacity: 0, x: -8, filter: 'blur(4px)', transition: { duration: 0.16, ease: smoothEase } }}
                             className="flex flex-col p-1.5 w-full"
                           >
                             <button onClick={() => setActiveSubmenu('provider')} className="flex items-center justify-between px-2.5 py-2 text-xs rounded-lg hover:bg-app-surface/50 transition-premium text-app-textPrimary w-full text-left">
@@ -2109,8 +2117,8 @@ return (
                           <motion.div
                             key="provider"
                             initial={{ opacity: 0, x: 10, filter: 'blur(4px)' }}
-                            animate={{ opacity: 1, x: 0, filter: 'blur(0px)', transition: { delay: 0.15, duration: 0.15, ease: "easeOut" } }}
-                            exit={{ opacity: 0, x: 10, filter: 'blur(4px)', transition: { duration: 0.1, ease: "easeIn" } }}
+                            animate={{ opacity: 1, x: 0, filter: 'blur(0px)', transition: { delay: 0.08, duration: 0.22, ease: smoothEase } }}
+                            exit={{ opacity: 0, x: 8, filter: 'blur(4px)', transition: { duration: 0.16, ease: smoothEase } }}
                             className="flex flex-col p-1.5 w-full"
                           >
                             <button onClick={() => setActiveSubmenu(null)} className="flex items-center gap-2 px-2.5 py-2 text-xs rounded-lg hover:bg-app-surface/50 transition-premium text-app-textSecondary hover:text-app-textPrimary w-full text-left mb-1">
@@ -2144,8 +2152,8 @@ return (
                           <motion.div
                             key="reasoning"
                             initial={{ opacity: 0, x: 10, filter: 'blur(4px)' }}
-                            animate={{ opacity: 1, x: 0, filter: 'blur(0px)', transition: { delay: 0.15, duration: 0.15, ease: "easeOut" } }}
-                            exit={{ opacity: 0, x: 10, filter: 'blur(4px)', transition: { duration: 0.1, ease: "easeIn" } }}
+                            animate={{ opacity: 1, x: 0, filter: 'blur(0px)', transition: { delay: 0.08, duration: 0.22, ease: smoothEase } }}
+                            exit={{ opacity: 0, x: 8, filter: 'blur(4px)', transition: { duration: 0.16, ease: smoothEase } }}
                             className="flex flex-col p-1.5 w-full"
                           >
                             <button onClick={() => setActiveSubmenu(null)} className="flex items-center gap-2 px-2.5 py-2 text-xs rounded-lg hover:bg-app-surface/50 transition-premium text-app-textSecondary hover:text-app-textPrimary w-full text-left mb-1">
@@ -2253,344 +2261,314 @@ return (
       {/* Sunset Stripe Band */}
       <div className="absolute bottom-0 left-0 right-0 h-[8px] z-50 pointer-events-none" style={{ background: 'linear-gradient(to right, #fa520f, #ffa110, #ffb83e, #ffd900, #fff8e0)' }} />
 
+    </main>
+
 
 
       {/* Connectors Modal Overlay */}
       <AnimatePresence>
         {showMcpDialog && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="fixed inset-0 bg-[var(--color-app-surface)]/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
+            transition={{ duration: 0.24, ease: smoothEase }}
+            className="fixed inset-0 bg-[#111014]/80 backdrop-blur-md z-[100] flex items-center justify-center p-4"
           >
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 18 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              transition={{ duration: 0.2, ease: "easeOut" }}
-              className="bg-app-modalBg border border-app-border/50 rounded-lg w-full max-w-[500px] shadow-2xl flex flex-col overflow-hidden max-h-[85vh]"
+              exit={{ opacity: 0, scale: 0.96, y: 18 }}
+              transition={quickSpring}
+              className="relative w-full max-w-3xl max-h-[86vh] overflow-hidden rounded-3xl border border-white/10 bg-[#1d1c21] shadow-[0_28px_80px_rgba(0,0,0,0.45)] text-app-textPrimary"
             >
-            
-            <div className="flex items-center justify-between px-5 py-3.5 border-b border-app-border/20">
-              <div className="flex items-center gap-2 text-app-textSecondary">
-                <i className="ph-light ph-link text-md"></i>
-                <span className="text-xs font-semibold uppercase tracking-wider">Connectors</span>
+              <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-br from-[#fa520f]/20 via-[#ffa110]/10 to-transparent pointer-events-none" />
+
+              <div className="relative flex items-start justify-between gap-4 px-6 pt-6 pb-5 border-b border-white/10">
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-[#fa520f]/15 border border-[#fa520f]/25 text-[#ff9b62] flex items-center justify-center shadow-inner">
+                    <i className="ph-light ph-plugs-connected text-2xl"></i>
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-xl font-semibold tracking-[-0.02em] text-app-textPrimary">MCP connectors</h2>
+                      <span className="px-2 py-0.5 rounded-full bg-white/8 border border-white/10 text-[10px] font-semibold uppercase tracking-[0.14em] text-app-textMuted">Beta</span>
+                    </div>
+                    <p className="text-sm text-app-textMuted mt-1 max-w-xl">Connect remote MCP servers, review loaded tools, and choose how much autonomy each connector gets in chat.</p>
+                  </div>
+                </div>
+                <button className="w-9 h-9 rounded-xl bg-white/5 hover:bg-white/10 text-app-textMuted hover:text-app-textPrimary transition-premium flex items-center justify-center" onClick={() => setShowMcpDialog(false)}>
+                  <i className="ph-light ph-x text-lg"></i>
+                </button>
               </div>
-              <button className="text-app-textMuted hover:text-app-textPrimary transition-premium" onClick={() => setShowMcpDialog(false)}>
-                <i className="ph-light ph-x text-md"></i>
-              </button>
-            </div>
 
-            <div className="p-5 flex flex-col gap-5 overflow-y-auto custom-scrollbar">
-               {mcpServers.length === 0 ? (
-                 <div className="p-6 flex flex-col items-center justify-center text-center">
-                     <div className="w-12 h-12 bg-app-surface border border-app-border/40 rounded-full flex items-center justify-center mb-4">
-                         <i className="ph-light ph-plug text-xl text-app-textSecondary"></i>
-                     </div>
-                     <h3 className="text-sm font-semibold text-app-textPrimary">Connect MCP Server</h3>
-                     <p className="text-xs text-app-textMuted mt-1 mb-6 max-w-[280px]">Extend your AI assistant with custom tools and integrations via the Model Context Protocol.</p>
-                     
-                     <div className="w-full flex gap-2">
-                         <input 
-                         type="text" 
-                         placeholder="Enter SSE URL (e.g., http://localhost:3001/sse)" 
-                         value={mcpInputUrl}
-                         onChange={(e) => setMcpInputUrl(e.target.value)}
-                         onKeyDown={(e) => e.key === 'Enter' && handleConnectMcp()}
-                         className="flex-1 bg-app-surface border border-app-border/30 rounded px-3 py-1.5 text-xs text-app-textPrimary focus:outline-none focus:border-app-textSecondary transition-premium"
-                         />
-                         <button 
-                         onClick={handleConnectMcp}
-                         className="bg-app-textPrimary text-black px-4 py-1.5 rounded text-xs font-semibold hover:bg-white transition-premium"
-                         >
-                         Connect
-                         </button>
-                     </div>
-                 </div>
-               ) : (
-                 <div className="flex flex-col gap-5">
-                    <div className="w-full flex gap-2">
-                         <input 
-                         type="text" 
-                         placeholder="Connect another SSE URL..." 
-                         value={mcpInputUrl}
-                         onChange={(e) => setMcpInputUrl(e.target.value)}
-                         onKeyDown={(e) => e.key === 'Enter' && handleConnectMcp()}
-                         className="flex-1 bg-app-surface border border-app-border/30 rounded px-3 py-1.5 text-xs text-app-textPrimary focus:outline-none focus:border-app-textSecondary transition-premium"
-                         />
-                         <button 
-                         onClick={handleConnectMcp}
-                         className="bg-app-surface text-app-textPrimary border border-app-border/30 px-3 py-1.5 rounded text-xs font-semibold hover:bg-app-surfaceHover transition-premium"
-                         >
-                         Add
-                         </button>
-                    </div>
+              <div className="relative p-6 overflow-y-auto custom-scrollbar max-h-[calc(86vh-104px)] space-y-5">
+                <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 rounded-2xl bg-black/20 border border-white/10 p-3">
+                  <label className="sr-only" htmlFor="mcp-url-input">MCP server URL</label>
+                  <input
+                    id="mcp-url-input"
+                    type="text"
+                    placeholder="https://your-server.example.com/sse"
+                    value={mcpInputUrl}
+                    onChange={(e) => setMcpInputUrl(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleConnectMcp()}
+                    className="w-full bg-[#141318] border border-white/10 rounded-xl px-4 py-3 text-sm text-app-textPrimary placeholder:text-app-textMuted focus:outline-none focus:border-[#fa520f]/70 focus:ring-2 focus:ring-[#fa520f]/15 transition-premium"
+                  />
+                  <button
+                    onClick={handleConnectMcp}
+                    disabled={!mcpInputUrl.trim()}
+                    className="px-5 py-3 rounded-xl bg-[#fa520f] hover:bg-[#ff6a25] disabled:bg-white/10 disabled:text-app-textMuted text-white text-sm font-semibold transition-premium shadow-lg shadow-[#fa520f]/20"
+                  >
+                    Connect server
+                  </button>
+                </div>
 
-                    <div className="space-y-2">
-                      <h4 className="text-xs font-semibold uppercase tracking-wider text-app-textSecondary">Connected Servers</h4>
-                      {mcpServers.map(url => (
-                        <div key={url} className="flex flex-col p-2.5 bg-app-surface/20 border border-app-border/20 rounded font-mono text-xs text-app-textSecondary mb-2 gap-2">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-6 h-6 rounded bg-[var(--color-app-surface)] border border-app-border/30 flex items-center justify-center text-xs font-semibold text-app-textPrimary">
-                                        {getMcpName(url).charAt(0)}
-                                    </div>
-                                    <div className="flex flex-col min-w-0">
-                                        <div className="text-sm font-semibold text-app-textPrimary truncate">{getMcpName(url)}</div>
-                                        <span className="truncate max-w-[200px] text-[10px]">{url}</span>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <button onClick={() => handleCopyUrl(url)} className="text-app-textMuted hover:text-app-textPrimary p-1 rounded transition-premium">
-                                        <i className="ph-light ph-copy text-xs"></i>
-                                    </button>
-                                    <button
-                                        onClick={() => handleDisconnectMcp(url)}
-                                    className="px-2.5 py-1 text-xs text-app-textSecondary bg-[var(--color-app-surface)] hover:bg-app-surface border border-app-border/40 rounded transition-premium"
-                                    >
-                                    Disconnect
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                      ))}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                    <div className="text-2xl font-semibold text-app-textPrimary">{mcpServers.length}</div>
+                    <div className="text-xs text-app-textMuted mt-1">Saved servers</div>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                    <div className="text-2xl font-semibold text-app-textPrimary">{getConnectedMcpUrls().length}</div>
+                    <div className="text-xs text-app-textMuted mt-1">Active now</div>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                    <div className="text-2xl font-semibold text-app-textPrimary">{getActiveMcpTools().length}</div>
+                    <div className="text-xs text-app-textMuted mt-1">Tools loaded</div>
+                  </div>
+                </div>
+
+                {mcpServers.length === 0 ? (
+                  <div className="rounded-3xl border border-dashed border-white/15 bg-white/[0.03] p-8 text-center">
+                    <div className="mx-auto w-14 h-14 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-app-textSecondary mb-4">
+                      <i className="ph-light ph-plug-charging text-2xl"></i>
                     </div>
-                    
-                    <div className="pt-2 border-t border-app-border/20 space-y-3">
-                        <div>
-                            <h4 className="text-xs font-semibold uppercase tracking-wider text-app-textSecondary">Tool permissions</h4>
-                            <p className="text-[11px] text-app-textMuted mt-0.5">Control execution rules for individual operations.</p>
-                        </div>
-                        <div className="border border-app-border/40 rounded bg-[var(--color-app-surface)]">
-                            <div className="flex items-center justify-between px-3 py-2 bg-app-surface/20 border-b border-app-border/40">
-                                <button onClick={() => setMcpCollapsed(!mcpCollapsed)} className="flex items-center gap-2">
-                                    <i className={`ph-light ${mcpCollapsed ? 'ph-caret-right' : 'ph-caret-down'} text-xxs text-app-textMuted`}></i>
-                                    <span className="text-xs font-medium text-app-textPrimary">Available tools</span>
-                                    <span className="bg-app-surface text-app-textMuted text-[9px] px-1.5 py-0.2 rounded-full">{getActiveMcpTools().length}</span>
-                                </button>
-                                
-                                <div className="relative">
-                                    <button
-                                       onClick={() => setActivePresetMenu(activePresetMenu === 'mcp' ? null : 'mcp')}
-                                      className="flex items-center gap-1 px-2 py-0.5 text-[10px] bg-app-surface hover:bg-app-surfaceHover text-app-textSecondary border border-app-border/40 rounded transition-premium"
-                                    >
-                                        <span>... {getPresetLabel('mcp')}</span>
-                                        <i className="ph-light ph-caret-down text-[8px]"></i>
-                                    </button>
-                                    
-                                    {activePresetMenu === 'mcp' && (
-                                       <>
-                                         <div className="fixed inset-0 z-40" onClick={() => setActivePresetMenu(null)} />
-                                         <div className="absolute right-0 mt-1 w-28 bg-app-surface border border-app-border rounded shadow-xl z-50">
-                                             <button onClick={() => applyPreset('mcp', 'allow')} className="w-full text-left px-2 py-1.5 text-[10px] text-app-textSecondary hover:text-app-textPrimary hover:bg-app-surfaceHover border-b border-app-border/10">Always allow</button>
-                                             <button onClick={() => applyPreset('mcp', 'ask')} className="w-full text-left px-2 py-1.5 text-[10px] text-app-textSecondary hover:text-app-textPrimary hover:bg-app-surfaceHover border-b border-app-border/10">Ask each time</button>
-                                             <button onClick={() => applyPreset('mcp', 'block')} className="w-full text-left px-2 py-1.5 text-[10px] text-app-textSecondary hover:text-app-textPrimary hover:bg-app-surfaceHover">Never allow</button>
-                                         </div>
-                                       </>
-                                    )}
-                                </div>
+                    <h3 className="text-base font-semibold text-app-textPrimary">No connectors yet</h3>
+                    <p className="text-sm text-app-textMuted mt-2 max-w-md mx-auto">Paste an SSE endpoint above to make external tools available directly inside this chat.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-app-textMuted">Connected servers</h3>
+                    {mcpServers.map(url => (
+                      <div key={url} className="group rounded-2xl border border-white/10 bg-white/[0.04] hover:bg-white/[0.06] transition-premium p-4">
+                        <div className="flex items-center justify-between gap-4">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#fa520f] to-[#cc3a05] text-white flex items-center justify-center text-sm font-bold uppercase shadow-lg shadow-[#fa520f]/15">
+                              {getMcpName(url).charAt(0)}
                             </div>
-                            {!mcpCollapsed && (
-                               <div className="divide-y divide-app-border/20 text-xs font-mono text-app-textSecondary max-h-64 overflow-y-auto custom-scrollbar">
-                                  {getActiveMcpTools().map((tool: any) => {
-                                      const name = tool.function.name;
-                                      const permission = getToolPermission(name);
-                                      return (
-                                        <div key={name} className="flex items-center justify-between px-3 py-1.5 hover:bg-app-surface/20 transition-premium">
-                                            <div className="flex flex-col min-w-0 pr-2">
-                                              <span className="text-xs text-app-textSecondary tracking-tight truncate">{humanizeToolName(name)}</span>
-                                              <span className="text-[9px] text-app-textMuted truncate font-sans">{tool.function.description}</span>
-                                            </div>
-                                            <div className="flex items-center gap-1 bg-[var(--color-app-surface)] p-0.5 rounded border border-app-border/10 shrink-0">
-                                                <button onClick={() => setToolPermissions(prev => ({ ...prev, [name]: 'allow' }))} className={`w-5 h-5 flex items-center justify-center rounded transition-premium text-[10px] ${permission === 'allow' ? 'bg-app-surface text-app-textPrimary border border-app-borderLight/30' : 'text-app-textMuted border border-transparent hover:text-app-textSecondary'}`} title="Always Allow">
-                                                    <i className="ph-bold ph-check"></i>
-                                                </button>
-                                                <button onClick={() => setToolPermissions(prev => ({ ...prev, [name]: 'ask' }))} className={`w-5 h-5 flex items-center justify-center rounded transition-premium text-[10px] ${permission === 'ask' ? 'bg-app-surface text-app-textPrimary border border-app-borderLight/30' : 'text-app-textMuted border border-transparent hover:text-app-textSecondary'}`} title="Ask each time">
-                                                    <i className="ph-bold ph-hand-palm"></i>
-                                                </button>
-                                                <button onClick={() => setToolPermissions(prev => ({ ...prev, [name]: 'block' }))} className={`w-5 h-5 flex items-center justify-center rounded transition-premium text-[10px] ${permission === 'block' ? 'bg-app-surface text-app-textPrimary border border-app-borderLight/30' : 'text-app-textMuted border border-transparent hover:text-app-textSecondary'}`} title="Never Allow">
-                                                    <i className="ph-bold ph-prohibit"></i>
-                                                </button>
-                                            </div>
-                                        </div>
-                                      );
-                                  })}
-                               </div>
-                            )}
+                            <div className="min-w-0">
+                              <div className="text-sm font-semibold text-app-textPrimary truncate">{getMcpName(url)}</div>
+                              <div className="text-xs text-app-textMuted truncate font-mono">{url}</div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button onClick={() => handleCopyUrl(url)} className="w-9 h-9 rounded-xl bg-white/5 hover:bg-white/10 text-app-textMuted hover:text-app-textPrimary transition-premium" title="Copy URL">
+                              <i className="ph-light ph-copy text-sm"></i>
+                            </button>
+                            <button onClick={() => handleDisconnectMcp(url)} className="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-medium text-app-textSecondary hover:text-app-textPrimary transition-premium">
+                              Disconnect
+                            </button>
+                          </div>
                         </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="rounded-3xl border border-white/10 bg-black/20 overflow-hidden">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-4 border-b border-white/10">
+                    <button onClick={() => setMcpCollapsed(!mcpCollapsed)} className="flex items-center gap-3 text-left">
+                      <span className="w-8 h-8 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-app-textMuted">
+                        <i className={`ph-light ${mcpCollapsed ? 'ph-caret-right' : 'ph-caret-down'} text-xs`}></i>
+                      </span>
+                      <span>
+                        <span className="block text-sm font-semibold text-app-textPrimary">Tool permissions</span>
+                        <span className="block text-xs text-app-textMuted">Review {getActiveMcpTools().length} available MCP operations.</span>
+                      </span>
+                    </button>
+                    <div className="relative">
+                      <button onClick={() => setActivePresetMenu(activePresetMenu === 'mcp' ? null : 'mcp')} className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-app-textSecondary transition-premium">
+                        {getPresetLabel('mcp')}
+                        <i className="ph-light ph-caret-down text-[10px]"></i>
+                      </button>
+                      {activePresetMenu === 'mcp' && (
+                        <>
+                          <div className="fixed inset-0 z-40" onClick={() => setActivePresetMenu(null)} />
+                          <div className="absolute right-0 mt-2 w-36 rounded-xl bg-[#242329] border border-white/10 shadow-2xl z-50 overflow-hidden">
+                            <button onClick={() => applyPreset('mcp', 'allow')} className="w-full text-left px-3 py-2 text-xs text-app-textSecondary hover:text-app-textPrimary hover:bg-white/5">Always allow</button>
+                            <button onClick={() => applyPreset('mcp', 'ask')} className="w-full text-left px-3 py-2 text-xs text-app-textSecondary hover:text-app-textPrimary hover:bg-white/5">Ask each time</button>
+                            <button onClick={() => applyPreset('mcp', 'block')} className="w-full text-left px-3 py-2 text-xs text-app-textSecondary hover:text-app-textPrimary hover:bg-white/5">Never allow</button>
+                          </div>
+                        </>
+                      )}
                     </div>
-                 </div>
-               )}
-            </div>
+                  </div>
+                  {!mcpCollapsed && (
+                    <div className="max-h-72 overflow-y-auto custom-scrollbar divide-y divide-white/10">
+                      {getActiveMcpTools().length === 0 ? (
+                        <div className="px-4 py-8 text-center text-sm text-app-textMuted">Connect a server to load MCP tools.</div>
+                      ) : getActiveMcpTools().map((tool: any) => {
+                        const name = tool.function.name;
+                        const permission = getToolPermission(name);
+                        return (
+                          <div key={name} className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-white/[0.03] transition-premium">
+                            <div className="min-w-0">
+                              <div className="text-sm text-app-textPrimary truncate">{humanizeToolName(name)}</div>
+                              <div className="text-xs text-app-textMuted truncate">{tool.function.description}</div>
+                            </div>
+                            <div className="flex items-center gap-1 rounded-xl bg-white/5 border border-white/10 p-1 shrink-0">
+                              <button onClick={() => setToolPermissions(prev => ({ ...prev, [name]: 'allow' }))} className={`w-7 h-7 rounded-lg transition-premium text-[11px] ${permission === 'allow' ? 'bg-emerald-400/15 text-emerald-300' : 'text-app-textMuted hover:text-app-textPrimary hover:bg-white/5'}`} title="Always allow"><i className="ph-bold ph-check"></i></button>
+                              <button onClick={() => setToolPermissions(prev => ({ ...prev, [name]: 'ask' }))} className={`w-7 h-7 rounded-lg transition-premium text-[11px] ${permission === 'ask' ? 'bg-amber-400/15 text-amber-300' : 'text-app-textMuted hover:text-app-textPrimary hover:bg-white/5'}`} title="Ask each time"><i className="ph-bold ph-hand-palm"></i></button>
+                              <button onClick={() => setToolPermissions(prev => ({ ...prev, [name]: 'block' }))} className={`w-7 h-7 rounded-lg transition-premium text-[11px] ${permission === 'block' ? 'bg-red-400/15 text-red-300' : 'text-app-textMuted hover:text-app-textPrimary hover:bg-white/5'}`} title="Never allow"><i className="ph-bold ph-prohibit"></i></button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
-    </main>
-
-    <AnimatePresence>
-      {false && activeArtifact && (
-        <motion.div
-          initial={{ width: 0, opacity: 0 }}
-          animate={{ width: window.innerWidth < 768 ? '100%' : '50%', opacity: 1 }}
-          exit={{ width: 0, opacity: 0 }}
-          transition={{ duration: 0.3, ease: 'easeInOut' }}
-          className="h-full bg-app-surface border-l border-app-border shrink-0 flex flex-col overflow-hidden z-20 absolute md:relative right-0 top-0"
-        >
-          <div className="flex items-center justify-between px-4 py-3 border-b border-app-border bg-app-surfaceHover">
-            <div className="flex items-center gap-2">
-              <Code className="w-4 h-4 text-app-accent" />
-              <span className="text-sm font-medium">{activeArtifact.title}</span>
-              <span className="px-2 py-0.5 rounded text-xs bg-app-surface border border-app-border text-app-textSecondary">{activeArtifact.language}</span>
-            </div>
-            <div className="flex items-center gap-2">
-               <button 
-                 onClick={() => {
-                   navigator.clipboard.writeText(activeArtifact.content);
-                 }}
-                 className="p-1.5 rounded hover:bg-app-surface text-app-textSecondary transition-colors"
-                 title="Copy code"
-               >
-                 <Copy className="w-4 h-4" />
-               </button>
-               <button 
-                 onClick={() => setActiveArtifact(null)}
-                 className="p-1.5 rounded hover:bg-app-surface text-app-textSecondary transition-colors"
-               >
-                 <X className="w-4 h-4" />
-               </button>
-            </div>
-          </div>
-          <div className="flex-1 overflow-auto custom-scrollbar p-4 bg-[#1a1b26]">
-            <SyntaxHighlighter
-              style={tokyoNight as any}
-              language={activeArtifact.language}
-              PreTag="div"
-              className="text-sm font-mono !bg-transparent !m-0"
-            >
-              {activeArtifact.content}
-            </SyntaxHighlighter>
-          </div>
-        </motion.div>
-      )}
-    </AnimatePresence>
 
     {/* Add Connector Modal */}
     <AnimatePresence>
       {showAddConnectorModal && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center font-sans">
-          {/* Backdrop */}
-          <motion.div 
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
-            className="absolute inset-0 bg-transparent"
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 font-sans">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.22, ease: smoothEase }}
+            className="absolute inset-0 bg-[#111014]/70 backdrop-blur-md"
             onClick={() => setShowAddConnectorModal(false)}
           />
-          
-          {/* Modal Container */}
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            transition={{ duration: 0.15 }}
-            className="relative w-[480px] max-w-[95vw] max-h-[90vh] overflow-y-auto custom-scrollbar bg-[#2a2a28] rounded-xl flex flex-col border border-[#3e3e3b] text-[#E8E5DC] shadow-2xl"
+
+          <motion.div
+            initial={{ opacity: 0, y: 18, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 18, scale: 0.96 }}
+            transition={quickSpring}
+            className="relative w-[560px] max-w-[95vw] max-h-[90vh] overflow-hidden rounded-3xl border border-white/10 bg-[#1d1c21] text-app-textPrimary shadow-[0_28px_80px_rgba(0,0,0,0.5)]"
           >
-            {/* Header */}
-            <div className="px-5 pt-5 pb-3 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <h2 className="text-[17px] font-semibold text-[#E8E5DC]">Add custom connector</h2>
-                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-[#3e3e3b] text-[#b3b1ad] tracking-wide">BETA</span>
+            <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-br from-[#fa520f]/20 via-[#ffa110]/10 to-transparent pointer-events-none" />
+
+            <div className="relative px-6 pt-6 pb-5 border-b border-white/10 flex items-start justify-between gap-4">
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-[#fa520f]/15 border border-[#fa520f]/25 text-[#ff9b62] flex items-center justify-center">
+                  <i className="ph-light ph-plug text-2xl"></i>
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-xl font-semibold tracking-[-0.02em]">Add custom connector</h2>
+                    <span className="px-2 py-0.5 rounded-full bg-white/8 border border-white/10 text-[10px] font-semibold uppercase tracking-[0.14em] text-app-textMuted">Beta</span>
+                  </div>
+                  <p className="text-sm text-app-textMuted mt-1 max-w-sm">Add a trusted remote MCP server to bring its tools into this chat.</p>
+                </div>
               </div>
-              <button 
+              <button
                 onClick={() => setShowAddConnectorModal(false)}
-                className="p-1 rounded-md hover:bg-[#3e3e3b] text-[#b3b1ad] hover:text-[#E8E5DC] transition-colors"
+                className="w-9 h-9 rounded-xl bg-white/5 hover:bg-white/10 text-app-textMuted hover:text-app-textPrimary transition-premium flex items-center justify-center"
               >
                 <span className="material-symbols-outlined text-[20px]">close</span>
               </button>
             </div>
 
-            {/* Content */}
-            <div className="px-5 pb-5 flex flex-col gap-5">
-              <p className="text-[14px] text-[#b3b1ad] leading-relaxed">
-                Connect Mistral to your data and tools. <a href="#" className="text-[#a4a098] underline hover:text-[#E8E5DC] transition-colors">Learn more about connectors</a> or explore <a href="#" className="text-[#a4a098] underline hover:text-[#E8E5DC] transition-colors">pre-built ones</a>.
-              </p>
-
-              <div className="flex flex-col gap-3">
-                <input 
-                  type="text" 
+            <div className="relative px-6 py-5 overflow-y-auto custom-scrollbar max-h-[calc(90vh-176px)] space-y-5">
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-4 space-y-3">
+                <label className="block text-xs font-semibold uppercase tracking-[0.14em] text-app-textMuted">Connector details</label>
+                <input
+                  type="text"
                   value={mcpInputName}
                   onChange={(e) => setMcpInputName(e.target.value)}
-                  placeholder="Name" 
-                  className="w-full bg-[#1e1e1d] border border-[#3e3e3b] rounded-lg px-3 py-2 text-[14px] text-[#E8E5DC] placeholder-[#6b6965] focus:outline-none focus:border-[#6b6965] transition-colors"
+                  placeholder="Display name (optional)"
+                  className="w-full bg-[#141318] border border-white/10 rounded-xl px-4 py-3 text-sm text-app-textPrimary placeholder:text-app-textMuted focus:outline-none focus:border-[#fa520f]/70 focus:ring-2 focus:ring-[#fa520f]/15 transition-premium"
                 />
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={mcpInputUrl}
                   onChange={(e) => setMcpInputUrl(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleConnectMcp()}
-                  placeholder="Remote MCP server URL" 
-                  className="w-full bg-[#1e1e1d] border border-[#3e3e3b] rounded-lg px-3 py-2 text-[14px] text-[#E8E5DC] placeholder-[#6b6965] focus:outline-none focus:border-[#6b6965] transition-colors"
+                  placeholder="Remote MCP server URL"
+                  className="w-full bg-[#141318] border border-white/10 rounded-xl px-4 py-3 text-sm text-app-textPrimary placeholder:text-app-textMuted focus:outline-none focus:border-[#fa520f]/70 focus:ring-2 focus:ring-[#fa520f]/15 transition-premium"
                 />
               </div>
 
-              {/* Advanced Settings */}
+              <div className="rounded-2xl border border-amber-400/15 bg-amber-400/[0.06] p-4 text-sm text-app-textSecondary leading-relaxed">
+                <div className="flex items-start gap-3">
+                  <i className="ph-light ph-shield-warning text-amber-300 text-lg mt-0.5"></i>
+                  <div>
+                    <div className="font-semibold text-app-textPrimary mb-1">Use trusted connectors only</div>
+                    <p className="text-app-textMuted">MCP servers can expose tools that read data or take actions. Review tool permissions after connecting.</p>
+                  </div>
+                </div>
+              </div>
+
               <div>
-                <button 
+                <button
                   onClick={() => setShowAdvancedConnectorSettings(!showAdvancedConnectorSettings)}
-                  className="flex items-center gap-1.5 text-[14px] text-[#b3b1ad] hover:text-[#E8E5DC] transition-colors"
+                  className="flex items-center justify-between w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-app-textSecondary hover:text-app-textPrimary hover:bg-white/[0.06] transition-premium"
                 >
+                  <span className="flex items-center gap-2 font-medium">
+                    <i className="ph-light ph-sliders-horizontal"></i>
+                    Advanced settings
+                  </span>
                   <span className="material-symbols-outlined text-[18px]">
                     {showAdvancedConnectorSettings ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}
                   </span>
-                  Advanced settings
                 </button>
-                
+
                 <AnimatePresence>
                   {showAdvancedConnectorSettings && (
-                    <motion.div 
+                    <motion.div
                       initial={{ height: 0, opacity: 0, marginTop: 0 }}
                       animate={{ height: 'auto', opacity: 1, marginTop: 12 }}
                       exit={{ height: 0, opacity: 0, marginTop: 0 }}
-                      className="overflow-hidden flex flex-col gap-3"
+                      transition={{ duration: 0.24, ease: smoothEase }}
+                      className="overflow-hidden"
                     >
-                      <input 
-                        type="text" 
-                        placeholder="OAuth Client ID (optional)" 
-                        className="w-full bg-[#1e1e1d] border border-[#3e3e3b] rounded-lg px-3 py-2 text-[14px] text-[#E8E5DC] placeholder-[#6b6965] focus:outline-none focus:border-[#6b6965] transition-colors"
-                      />
-                      <input 
-                        type="password" 
-                        placeholder="OAuth Client Secret (optional)" 
-                        className="w-full bg-[#1e1e1d] border border-[#3e3e3b] rounded-lg px-3 py-2 text-[14px] text-[#E8E5DC] placeholder-[#6b6965] focus:outline-none focus:border-[#6b6965] transition-colors"
-                      />
+                      <div className="grid grid-cols-1 gap-3 rounded-2xl border border-white/10 bg-black/20 p-4">
+                        <input
+                          type="text"
+                          placeholder="OAuth Client ID (optional)"
+                          className="w-full bg-[#141318] border border-white/10 rounded-xl px-4 py-3 text-sm text-app-textPrimary placeholder:text-app-textMuted focus:outline-none focus:border-[#fa520f]/70 focus:ring-2 focus:ring-[#fa520f]/15 transition-premium"
+                        />
+                        <input
+                          type="password"
+                          placeholder="OAuth Client Secret (optional)"
+                          className="w-full bg-[#141318] border border-white/10 rounded-xl px-4 py-3 text-sm text-app-textPrimary placeholder:text-app-textMuted focus:outline-none focus:border-[#fa520f]/70 focus:ring-2 focus:ring-[#fa520f]/15 transition-premium"
+                        />
+                      </div>
                     </motion.div>
                   )}
                 </AnimatePresence>
               </div>
-
-              {/* Footer text */}
-              <div className="mt-1 text-[13px] text-[#6b6965] leading-relaxed flex flex-col gap-2">
-                <p>Only use connectors from developers you trust. Anthropic does not control which tools developers make available and cannot verify that they will work as intended or that they won't change.</p>
-                <p>Building an MCP server? <a href="#" className="underline hover:text-[#b3b1ad] transition-colors">Report issues and subscribe to updates here</a></p>
-              </div>
             </div>
 
-            {/* Actions */}
-            <div className="px-5 py-4 border-t border-[#3e3e3b] flex items-center justify-end gap-3 bg-[#262624]">
-              <button 
-                onClick={() => setShowAddConnectorModal(false)}
-                className="px-4 py-1.5 rounded-lg bg-[#3e3e3b] hover:bg-[#4d4d4b] text-[#E8E5DC] text-[14px] font-medium transition-colors"
+            <div className="px-6 py-4 border-t border-white/10 bg-[#19181d] flex items-center justify-between gap-3">
+              <button
+                onClick={() => setShowMcpDialog(true)}
+                className="text-sm text-app-textMuted hover:text-app-textPrimary transition-premium"
               >
-                Cancel
+                Manage existing
               </button>
-              <button 
-                onClick={handleConnectMcp}
-                className="px-6 py-1.5 bg-[#161615] border border-app-border/20 rounded-lg text-sm font-medium text-app-textPrimary hover:bg-app-surface transition-colors shadow-sm disabled:opacity-50"
-                disabled={!mcpInputUrl.trim()}
-              >
-                Add
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setShowAddConnectorModal(false)}
+                  className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-app-textSecondary hover:text-app-textPrimary text-sm font-medium transition-premium"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConnectMcp}
+                  className="px-5 py-2 rounded-xl bg-[#fa520f] hover:bg-[#ff6a25] disabled:bg-white/10 disabled:text-app-textMuted text-white text-sm font-semibold transition-premium shadow-lg shadow-[#fa520f]/20"
+                  disabled={!mcpInputUrl.trim()}
+                >
+                  Add connector
+                </button>
+              </div>
             </div>
           </motion.div>
         </div>
