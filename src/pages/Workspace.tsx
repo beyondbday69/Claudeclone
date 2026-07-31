@@ -72,12 +72,12 @@ export default function Workspace() {
     }
   };
 
-  if (!octokit || !owner || !repo) return <div className="p-8 text-[var(--color-app-textMuted)] bg-[var(--color-app-main)] h-screen flex items-center justify-center">Loading workspace...</div>;
+  if (!octokit || !owner || !repo) return <div className="p-8 text-[var(--color-app-textMuted)] bg-[var(--color-app-main)] app-viewport flex items-center justify-center">Loading workspace...</div>;
 
   return (
-    <div className="flex h-screen bg-[var(--color-app-main)] text-[var(--color-app-textPrimary)] overflow-hidden font-sans selection:bg-[#444]">
+    <div className="flex app-viewport bg-[var(--color-app-main)] text-[var(--color-app-textPrimary)] overflow-hidden font-sans selection:bg-[#444]">
       {/* Left panel - Sidebar */}
-      <div className="w-[260px] h-full flex flex-col bg-[var(--color-app-surface)] shrink-0 border-r border-[var(--color-app-borderLight)]">
+      <div className="w-[220px] sm:w-[260px] h-full flex flex-col bg-[var(--color-app-surface)] shrink-0 border-r border-[var(--color-app-borderLight)]">
         <div className="p-4">
            <button 
              onClick={() => navigate('/connect')}
@@ -163,7 +163,7 @@ export default function Workspace() {
            )}
            
            {/* Agent Panel */}
-           <div className={`${selectedFile ? 'w-[450px] lg:w-[500px]' : 'flex-1 max-w-4xl mx-auto w-full'} h-full shrink-0 flex flex-col bg-[var(--color-app-main)] transition-all`}>
+           <div className={`${selectedFile ? 'w-[380px] lg:w-[500px]' : 'flex-1 max-w-4xl mx-auto w-full'} h-full shrink-0 flex flex-col bg-[var(--color-app-main)] transition-all`}>
               <AgentPanel 
                  owner={owner}
                  repo={repo}
