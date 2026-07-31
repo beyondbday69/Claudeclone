@@ -55,7 +55,7 @@ export default function Editor({ path, content, onChange }: EditorProps) {
       theme="vs-dark"
       value={content}
       path={path}
-      onChange={(val) => val && onChange(val)}
+      onChange={(val) => onChange(val ?? '')}
       options={{
         minimap: { enabled: false },
         fontSize: 14,

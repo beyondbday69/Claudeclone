@@ -70,7 +70,12 @@
   --theme-app-modalBg: #1F1E1B;
 }
 
+html, body, #root {
+  min-height: 100%;
+}
+
 body {
+  margin: 0;
   font-family: var(--font-sans);
   background-color: var(--color-app-main);
   color: var(--color-app-textPrimary);
@@ -89,6 +94,18 @@ body {
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: #383634;
+}
+
+@supports (height: 100dvh) {
+  .app-viewport {
+    height: 100dvh;
+  }
+}
+
+@supports not (height: 100dvh) {
+  .app-viewport {
+    height: 100vh;
+  }
 }
 
 .transition-premium {
